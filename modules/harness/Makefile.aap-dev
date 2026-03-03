@@ -11,6 +11,9 @@ export AAP_DEV_BRANCH ?= main
 export AAP_VERSION ?= 2.6
 export AAP_CONTAINER_RUNTIME ?= podman
 
+# Skip deployment check if explicitly disabled
+export AAP_SKIP_DEPLOY_CHECK ?= false
+
 .PHONY: harness/aap-dev/help
 ## Show AAP-Dev help
 harness/aap-dev/help:
@@ -37,6 +40,18 @@ harness/aap-dev/help:
 	@echo "  harness/aap-dev/backup        Backup AAP PostgreSQL database"
 	@echo "  harness/aap-dev/restore       Restore AAP database from backup"
 	@echo "  harness/aap-dev/versions      List available AAP versions"
+	@echo ""
+	@echo "Testing (auto-deploys AAP if not running):"
+	@echo "  harness/aap-dev/test          Run all ATF tests"
+	@echo "  harness/aap-dev/test/controller Run controller tests"
+	@echo "  harness/aap-dev/test/eda      Run EDA tests"
+	@echo "  harness/aap-dev/test/hub      Run hub tests"
+	@echo "  harness/aap-dev/test/init     Initialize test suite"
+	@echo ""
+	@echo "Deployment:"
+	@echo "  harness/aap-dev/deploy        Deploy AAP (non-blocking)"
+	@echo "  harness/aap-dev/wait-up       Wait for AAP API to be available"
+	@echo "  harness/aap-dev/ensure-running Ensure AAP is deployed and ready"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  harness/aap-dev/clean         Remove kind cluster and kubeconfig"
@@ -327,3 +342,166 @@ harness/aap-dev/shell:
 	@echo "Opening shell in $(AAP_DEV_DIR)..."
 	@echo "Run 'exit' to return."
 	@cd "$(AAP_DEV_DIR)" && exec $(SHELL)
+
+# ═══════════════════════════════════════════════════════════════
+# DEPLOYMENT TARGETS
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/aap-dev/is-running
+## Check if AAP is currently running (silent, for scripting)
+harness/aap-dev/is-running:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		exit 1; \
+	fi
+	@cd "$(AAP_DEV_DIR)" && \
+		if [ -f "bin/kubectl" ]; then \
+			KUBECONFIG=$$(pwd)/tmp/kubeconfig-$(AAP_VERSION) ./bin/kubectl get pods -n myaap >/dev/null 2>&1 || exit 1; \
+		else \
+			exit 1; \
+		fi
+
+.PHONY: harness/aap-dev/deploy
+## Deploy AAP without blocking (skaffold deploy)
+harness/aap-dev/deploy:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed. Run 'make harness/aap-dev/install' first."; \
+		exit 1; \
+	fi
+	@echo "Deploying AAP $(AAP_VERSION)..."
+	@echo ""
+	@echo "This will:"
+	@echo "  1. Create Kind cluster if needed"
+	@echo "  2. Build and deploy AAP images"
+	@echo "  3. Return when deployment is complete"
+	@echo ""
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make skaffold-deploy
+	@echo ""
+	@echo "Deployment complete. Waiting for API to be ready..."
+	@$(MAKE) harness/aap-dev/wait-up
+
+.PHONY: harness/aap-dev/wait-up
+## Wait for AAP API to become available
+harness/aap-dev/wait-up:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@echo "Waiting for AAP API to become available..."
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make aap-wait-up
+	@echo ""
+	@echo "AAP is ready!"
+	@$(MAKE) harness/aap-dev/url
+
+.PHONY: harness/aap-dev/ensure-running
+## Ensure AAP is deployed and ready (deploys if not running)
+harness/aap-dev/ensure-running:
+	@if [ "$(AAP_SKIP_DEPLOY_CHECK)" = "true" ]; then \
+		echo "Skipping deployment check (AAP_SKIP_DEPLOY_CHECK=true)"; \
+		exit 0; \
+	fi
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "AAP-Dev not installed. Installing..."; \
+		$(MAKE) harness/aap-dev/install; \
+	fi
+	@echo "Checking if AAP is running..."
+	@if $(MAKE) harness/aap-dev/is-running 2>/dev/null; then \
+		echo "✓ AAP is already running"; \
+		$(MAKE) harness/aap-dev/url; \
+	else \
+		echo "AAP is not running. Starting deployment..."; \
+		echo ""; \
+		echo "NOTE: This will deploy AAP in the background."; \
+		echo "      For interactive mode with logs, use 'make harness/aap-dev/start'"; \
+		echo ""; \
+		$(MAKE) harness/aap-dev/deploy; \
+	fi
+
+# ═══════════════════════════════════════════════════════════════
+# TEST TARGETS (Auto-deploy AAP before running tests)
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/aap-dev/test/init
+## Initialize the ATF test suite
+harness/aap-dev/test/init: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Initializing ATF Test Suite"
+	@echo "==========================="
+	@cd "$(AAP_DEV_DIR)" && make test-atf-init
+
+.PHONY: harness/aap-dev/test
+## Run all ATF core tests (ensures AAP is deployed first)
+harness/aap-dev/test: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Running ATF Core Tests"
+	@echo "======================"
+	@echo "AAP Version: $(AAP_VERSION)"
+	@echo ""
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run
+
+.PHONY: harness/aap-dev/test/controller
+## Run controller component tests (ensures AAP is deployed first)
+harness/aap-dev/test/controller: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Running Controller Tests"
+	@echo "========================"
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-controller
+
+.PHONY: harness/aap-dev/test/eda
+## Run EDA component tests (ensures AAP is deployed first)
+harness/aap-dev/test/eda: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Running EDA Tests"
+	@echo "================="
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-eda
+
+.PHONY: harness/aap-dev/test/hub
+## Run hub component tests (ensures AAP is deployed first)
+harness/aap-dev/test/hub: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Running Hub Tests"
+	@echo "================="
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-hub
+
+.PHONY: harness/aap-dev/test/portal
+## Run ansible-portal component tests (ensures AAP is deployed first)
+harness/aap-dev/test/portal: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Running Portal Tests"
+	@echo "===================="
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-portal
+
+.PHONY: harness/aap-dev/test/platform-services
+## Run platform-services component tests (ensures AAP is deployed first)
+harness/aap-dev/test/platform-services: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Running Platform Services Tests"
+	@echo "==============================="
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-ps
+
+.PHONY: harness/aap-dev/test/emerging-services
+## Run emerging-services tests (metrics service/utility) (ensures AAP is deployed first)
+harness/aap-dev/test/emerging-services: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Running Emerging Services Tests"
+	@echo "==============================="
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-es
+
+.PHONY: harness/aap-dev/test/all
+## Run all component test suites (ensures AAP is deployed first)
+harness/aap-dev/test/all: harness/aap-dev/ensure-running
+	@echo ""
+	@echo "Running All Component Tests"
+	@echo "==========================="
+	@echo "AAP Version: $(AAP_VERSION)"
+	@echo ""
+	@echo "This will run tests for: controller, eda, hub, portal, platform-services, emerging-services"
+	@echo ""
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-controller
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-eda
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-hub
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-portal
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-ps
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-es
+	@echo ""
+	@echo "All tests complete!"
