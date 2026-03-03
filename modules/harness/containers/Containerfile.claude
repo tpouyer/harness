@@ -1,0 +1,39 @@
+# Harness Agent Container - Claude (Anthropic)
+# This container runs AI agents with Claude API access
+
+FROM python:3.11-slim
+
+LABEL maintainer="Platform Team"
+LABEL description="Harness AI agent container for Anthropic Claude"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    jq \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install tree-sitter for code analysis
+RUN pip install --no-cache-dir \
+    anthropic>=0.18.0 \
+    tree-sitter>=0.20.0 \
+    tree-sitter-python \
+    tree-sitter-javascript \
+    pyyaml \
+    requests
+
+# Create non-root user
+RUN useradd -m -s /bin/bash harness
+USER harness
+WORKDIR /workspace
+
+# Create workspace directories
+RUN mkdir -p /workspace/.harness
+
+# Default entrypoint for agent execution
+COPY --chown=harness:harness entrypoint-claude.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["assist"]
