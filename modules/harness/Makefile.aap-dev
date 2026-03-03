@@ -1,0 +1,329 @@
+# Harness AAP-Dev Integration
+# Targets for installing and running the Ansible Automation Platform development environment
+# https://github.com/ansible/aap-dev
+
+SHELL := /bin/bash
+
+# AAP-Dev Configuration
+export AAP_DEV_REPO ?= https://github.com/ansible/aap-dev.git
+export AAP_DEV_DIR ?= $(HOME)/aap-dev
+export AAP_DEV_BRANCH ?= main
+export AAP_VERSION ?= 2.6
+export AAP_CONTAINER_RUNTIME ?= podman
+
+.PHONY: harness/aap-dev/help
+## Show AAP-Dev help
+harness/aap-dev/help:
+	@echo "Harness AAP-Dev Integration"
+	@echo "============================"
+	@echo ""
+	@echo "Ansible Automation Platform development environment management"
+	@echo "Repository: https://github.com/ansible/aap-dev"
+	@echo ""
+	@echo "Setup:"
+	@echo "  harness/aap-dev/install       Clone and setup aap-dev repository"
+	@echo "  harness/aap-dev/preflight     Check all prerequisites"
+	@echo "  harness/aap-dev/registry-login Login to required container registries"
+	@echo ""
+	@echo "Running:"
+	@echo "  harness/aap-dev/start         Start AAP development environment"
+	@echo "  harness/aap-dev/stop          Stop AAP (Ctrl+C skaffold and clean)"
+	@echo "  harness/aap-dev/status        Show AAP pod status"
+	@echo "  harness/aap-dev/logs          Tail AAP logs"
+	@echo "  harness/aap-dev/admin-password Get admin password"
+	@echo ""
+	@echo "Management:"
+	@echo "  harness/aap-dev/apply-license Apply AAP license"
+	@echo "  harness/aap-dev/backup        Backup AAP PostgreSQL database"
+	@echo "  harness/aap-dev/restore       Restore AAP database from backup"
+	@echo "  harness/aap-dev/versions      List available AAP versions"
+	@echo ""
+	@echo "Cleanup:"
+	@echo "  harness/aap-dev/clean         Remove kind cluster and kubeconfig"
+	@echo "  harness/aap-dev/clean-all     Full removal (really-clean)"
+	@echo ""
+	@echo "Configuration:"
+	@echo "  AAP_DEV_DIR      Installation directory (default: ~/aap-dev)"
+	@echo "  AAP_VERSION      AAP version to run (default: 2.6)"
+	@echo "  AAP_DEV_BRANCH   Git branch to use (default: main)"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make harness/aap-dev/install"
+	@echo "  make harness/aap-dev/start"
+	@echo "  make harness/aap-dev/start AAP_VERSION=2.5-next"
+
+.PHONY: harness/aap-dev/install
+## Clone and setup the aap-dev repository
+harness/aap-dev/install: harness/aap-dev/preflight
+	@echo "Installing AAP-Dev..."
+	@echo ""
+	@if [ -d "$(AAP_DEV_DIR)" ]; then \
+		echo "AAP-Dev directory already exists at $(AAP_DEV_DIR)"; \
+		echo "Updating repository..."; \
+		cd "$(AAP_DEV_DIR)" && git pull origin $(AAP_DEV_BRANCH); \
+	else \
+		echo "Cloning aap-dev to $(AAP_DEV_DIR)..."; \
+		git clone --branch $(AAP_DEV_BRANCH) $(AAP_DEV_REPO) "$(AAP_DEV_DIR)"; \
+	fi
+	@echo ""
+	@echo "AAP-Dev installed successfully!"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Ensure you're logged into container registries:"
+	@echo "     make harness/aap-dev/registry-login"
+	@echo "  2. Start AAP:"
+	@echo "     make harness/aap-dev/start"
+
+.PHONY: harness/aap-dev/preflight
+## Check prerequisites for aap-dev
+harness/aap-dev/preflight:
+	@echo "AAP-Dev Preflight Check"
+	@echo "======================="
+	@echo ""
+	@ERRORS=0; \
+	echo "Checking required tools..."; \
+	echo ""; \
+	if command -v podman >/dev/null 2>&1; then \
+		echo "✓ podman: $$(podman --version)"; \
+	else \
+		echo "✗ podman: NOT INSTALLED"; \
+		echo "  Install: make harness/deps/podman"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	if command -v make >/dev/null 2>&1; then \
+		echo "✓ make: $$(make --version | head -1)"; \
+	else \
+		echo "✗ make: NOT INSTALLED"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	if command -v git >/dev/null 2>&1; then \
+		echo "✓ git: $$(git --version)"; \
+	else \
+		echo "✗ git: NOT INSTALLED"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	echo ""; \
+	echo "Checking podman machine status..."; \
+	if podman machine list 2>/dev/null | grep -q "Currently running"; then \
+		echo "✓ podman machine: running"; \
+	else \
+		echo "⚠ podman machine: not running"; \
+		echo "  Start with: podman machine start"; \
+	fi; \
+	echo ""; \
+	echo "Checking container registry logins..."; \
+	if podman login --get-login registry.redhat.io >/dev/null 2>&1; then \
+		echo "✓ registry.redhat.io: logged in"; \
+	else \
+		echo "✗ registry.redhat.io: NOT LOGGED IN"; \
+		echo "  Login: podman login registry.redhat.io"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	if podman login --get-login brew.registry.redhat.io >/dev/null 2>&1; then \
+		echo "✓ brew.registry.redhat.io: logged in"; \
+	else \
+		echo "✗ brew.registry.redhat.io: NOT LOGGED IN"; \
+		echo "  Login: podman login brew.registry.redhat.io"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	if podman login --get-login quay.io >/dev/null 2>&1; then \
+		echo "✓ quay.io: logged in"; \
+	else \
+		echo "✗ quay.io: NOT LOGGED IN"; \
+		echo "  Login: podman login quay.io"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	echo ""; \
+	if [ $$ERRORS -gt 0 ]; then \
+		echo "Preflight check failed with $$ERRORS error(s)"; \
+		echo "Please resolve the issues above before continuing."; \
+		exit 1; \
+	else \
+		echo "All preflight checks passed!"; \
+	fi
+
+.PHONY: harness/aap-dev/registry-login
+## Login to required container registries
+harness/aap-dev/registry-login:
+	@echo "Logging into container registries..."
+	@echo ""
+	@echo "You will be prompted for credentials for each registry."
+	@echo "Use your Red Hat credentials for registry.redhat.io and brew.registry.redhat.io"
+	@echo ""
+	@echo "=== registry.redhat.io ==="
+	@podman login registry.redhat.io || true
+	@echo ""
+	@echo "=== brew.registry.redhat.io ==="
+	@podman login brew.registry.redhat.io || true
+	@echo ""
+	@echo "=== quay.io ==="
+	@podman login quay.io || true
+	@echo ""
+	@echo "Registry login complete. Run 'make harness/aap-dev/preflight' to verify."
+
+.PHONY: harness/aap-dev/start
+## Start the AAP development environment
+harness/aap-dev/start:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed. Run 'make harness/aap-dev/install' first."; \
+		exit 1; \
+	fi
+	@echo "Starting AAP Development Environment"
+	@echo "====================================="
+	@echo ""
+	@echo "AAP Version: $(AAP_VERSION)"
+	@echo "Directory: $(AAP_DEV_DIR)"
+	@echo ""
+	@echo "This will:"
+	@echo "  1. Create a Kind Kubernetes cluster"
+	@echo "  2. Deploy AAP using Skaffold"
+	@echo "  3. Tail all pod logs (blocks terminal)"
+	@echo ""
+	@echo "Press Ctrl+C to stop and undeploy."
+	@echo ""
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make aap
+
+.PHONY: harness/aap-dev/stop
+## Stop the AAP development environment (clean kind cluster)
+harness/aap-dev/stop:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@echo "Stopping AAP Development Environment..."
+	@cd "$(AAP_DEV_DIR)" && make clean
+
+.PHONY: harness/aap-dev/status
+## Show AAP pod status
+harness/aap-dev/status:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@cd "$(AAP_DEV_DIR)" && make aap-get-pods
+
+.PHONY: harness/aap-dev/logs
+## Tail AAP logs
+harness/aap-dev/logs:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@cd "$(AAP_DEV_DIR)" && make aap-tail-logs
+
+.PHONY: harness/aap-dev/admin-password
+## Get the AAP admin password
+harness/aap-dev/admin-password:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@cd "$(AAP_DEV_DIR)" && make admin-password
+
+.PHONY: harness/aap-dev/apply-license
+## Apply AAP license
+harness/aap-dev/apply-license:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@echo "Applying AAP license..."
+	@cd "$(AAP_DEV_DIR)" && make aap-apply-license
+
+.PHONY: harness/aap-dev/backup
+## Backup AAP PostgreSQL database
+harness/aap-dev/backup:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@echo "Backing up AAP database..."
+	@cd "$(AAP_DEV_DIR)" && make aap-backup
+
+.PHONY: harness/aap-dev/restore
+## Restore AAP database from backup
+harness/aap-dev/restore:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@echo "Restoring AAP database..."
+	@cd "$(AAP_DEV_DIR)" && make aap-restore
+
+.PHONY: harness/aap-dev/versions
+## List available AAP versions
+harness/aap-dev/versions:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@echo "Available AAP Versions:"
+	@cd "$(AAP_DEV_DIR)" && make list-versions
+
+.PHONY: harness/aap-dev/clean
+## Remove kind cluster and kubeconfig
+harness/aap-dev/clean:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "AAP-Dev not installed, nothing to clean."; \
+		exit 0; \
+	fi
+	@echo "Cleaning AAP-Dev kind cluster..."
+	@cd "$(AAP_DEV_DIR)" && make clean
+
+.PHONY: harness/aap-dev/clean-all
+## Full removal of aap-dev resources
+harness/aap-dev/clean-all:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "AAP-Dev not installed, nothing to clean."; \
+		exit 0; \
+	fi
+	@echo "Performing full AAP-Dev cleanup..."
+	@cd "$(AAP_DEV_DIR)" && make really-clean
+
+.PHONY: harness/aap-dev/uninstall
+## Remove the aap-dev directory entirely
+harness/aap-dev/uninstall: harness/aap-dev/clean-all
+	@echo "Removing AAP-Dev directory..."
+	@rm -rf "$(AAP_DEV_DIR)"
+	@echo "AAP-Dev uninstalled."
+
+.PHONY: harness/aap-dev/update
+## Update aap-dev to latest version
+harness/aap-dev/update:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed. Run 'make harness/aap-dev/install' first."; \
+		exit 1; \
+	fi
+	@echo "Updating AAP-Dev..."
+	@cd "$(AAP_DEV_DIR)" && git pull origin $(AAP_DEV_BRANCH)
+	@echo "AAP-Dev updated."
+
+.PHONY: harness/aap-dev/url
+## Show the AAP access URL for the current version
+harness/aap-dev/url:
+	@VERSION=$(AAP_VERSION); \
+	PORT=$$(echo $$VERSION | tr -d '.' | sed 's/-.*//'); \
+	echo "AAP $(AAP_VERSION) URL: http://localhost:449$${PORT}"
+	@echo ""
+	@echo "Default login: admin"
+	@echo "Password: run 'make harness/aap-dev/admin-password'"
+
+.PHONY: harness/aap-dev/events
+## Show Kubernetes events across all namespaces
+harness/aap-dev/events:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; \
+		exit 1; \
+	fi
+	@cd "$(AAP_DEV_DIR)" && make aap-get-events
+
+.PHONY: harness/aap-dev/shell
+## Open a shell in the aap-dev directory
+harness/aap-dev/shell:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed. Run 'make harness/aap-dev/install' first."; \
+		exit 1; \
+	fi
+	@echo "Opening shell in $(AAP_DEV_DIR)..."
+	@echo "Run 'exit' to return."
+	@cd "$(AAP_DEV_DIR)" && exec $(SHELL)

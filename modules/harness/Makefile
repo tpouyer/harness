@@ -12,6 +12,7 @@ SHELL := /bin/bash
 -include $(HARNESS_PATH)/modules/harness/Makefile.tests
 -include $(HARNESS_PATH)/modules/harness/Makefile.assist
 -include $(HARNESS_PATH)/modules/harness/Makefile.deps
+-include $(HARNESS_PATH)/modules/harness/Makefile.aap-dev
 
 # Load project and local config (if exists)
 -include .harness/config.env
@@ -27,6 +28,12 @@ harness/help:
 	@echo "  harness/deps          Install all dependencies (paude, jq, podman)"
 	@echo "  harness/deps/check    Check dependency status"
 	@echo "  harness/deps/help     Show all dependency install options"
+	@echo ""
+	@echo "AAP Development Environment:"
+	@echo "  harness/aap-dev/install   Install/clone aap-dev repository"
+	@echo "  harness/aap-dev/start     Start AAP dev environment"
+	@echo "  harness/aap-dev/stop      Stop AAP dev environment"
+	@echo "  harness/aap-dev/help      Show all aap-dev commands"
 	@echo ""
 	@echo "Core Targets:"
 	@echo "  harness/config        Display resolved configuration"
