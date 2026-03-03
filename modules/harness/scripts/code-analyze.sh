@@ -6,8 +6,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CACHE_DIR="${HARNESS_CACHE_DIR:-.harness/.cache}"
 
-# Detect issue for cache naming
-ISSUE=$("$SCRIPT_DIR/detect-issue.sh" 2>/dev/null || echo "unknown")
+# Detect issue for cache naming (trim whitespace)
+ISSUE=$("$SCRIPT_DIR/detect-issue.sh" 2>/dev/null | tr -d '\n' || echo "unknown")
+ISSUE="${ISSUE:-unknown}"
 CACHE_FILE="$CACHE_DIR/code-context-${ISSUE}.json"
 
 echo "Analyzing code changes..."
@@ -19,11 +20,28 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
 fi
 
 # Find merge base with main/master
-MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
-MERGE_BASE=$(git merge-base HEAD "origin/${MAIN_BRANCH}" 2>/dev/null || git merge-base HEAD "${MAIN_BRANCH}" 2>/dev/null || git rev-parse HEAD~10 2>/dev/null || echo "")
+MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "")
+MAIN_BRANCH="${MAIN_BRANCH:-main}"
+
+# Try to find merge base, handle fresh repos gracefully
+MERGE_BASE=""
+if git rev-parse "origin/${MAIN_BRANCH}" &>/dev/null; then
+    MERGE_BASE=$(git merge-base HEAD "origin/${MAIN_BRANCH}" 2>/dev/null || echo "")
+elif git rev-parse "${MAIN_BRANCH}" &>/dev/null && [ "$(git rev-parse HEAD)" != "$(git rev-parse ${MAIN_BRANCH})" ]; then
+    MERGE_BASE=$(git merge-base HEAD "${MAIN_BRANCH}" 2>/dev/null || echo "")
+fi
+
+# Fallback: use first commit or HEAD~N
+if [ -z "$MERGE_BASE" ]; then
+    COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
+    if [ "$COMMIT_COUNT" -gt 1 ]; then
+        MERGE_BASE=$(git rev-parse HEAD~$((COMMIT_COUNT > 10 ? 10 : COMMIT_COUNT - 1)) 2>/dev/null || echo "")
+    fi
+fi
 
 # Get diffs
 BRANCH_DIFF=""
+BRANCH_DIFF_FULL=""
 STAGED_DIFF=""
 WORKING_DIFF=""
 
@@ -39,16 +57,28 @@ WORKING_DIFF=$(git diff --stat 2>/dev/null || echo "")
 WORKING_DIFF_FULL=$(git diff 2>/dev/null || echo "")
 
 # Get modified files
-MODIFIED_FILES=$(git diff --name-only "$MERGE_BASE"..HEAD 2>/dev/null || echo "")
+if [ -n "$MERGE_BASE" ]; then
+    MODIFIED_FILES=$(git diff --name-only "$MERGE_BASE"..HEAD 2>/dev/null || echo "")
+else
+    MODIFIED_FILES=""
+fi
 STAGED_FILES=$(git diff --cached --name-only 2>/dev/null || echo "")
 WORKING_FILES=$(git diff --name-only 2>/dev/null || echo "")
 
 # Combine all modified files
 ALL_FILES=$(echo -e "${MODIFIED_FILES}\n${STAGED_FILES}\n${WORKING_FILES}" | sort -u | grep -v '^$' || true)
 
-# Count changes
-BRANCH_ADDITIONS=$(echo "$BRANCH_DIFF_FULL" | grep -c '^+[^+]' 2>/dev/null || echo "0")
-BRANCH_DELETIONS=$(echo "$BRANCH_DIFF_FULL" | grep -c '^-[^-]' 2>/dev/null || echo "0")
+# Count changes (ensure single integer output)
+if [ -n "$BRANCH_DIFF_FULL" ]; then
+    BRANCH_ADDITIONS=$(echo "$BRANCH_DIFF_FULL" | grep -c '^+[^+]' 2>/dev/null | head -1 || echo "0")
+    BRANCH_DELETIONS=$(echo "$BRANCH_DIFF_FULL" | grep -c '^-[^-]' 2>/dev/null | head -1 || echo "0")
+else
+    BRANCH_ADDITIONS=0
+    BRANCH_DELETIONS=0
+fi
+# Ensure we have integers
+BRANCH_ADDITIONS=${BRANCH_ADDITIONS:-0}
+BRANCH_DELETIONS=${BRANCH_DELETIONS:-0}
 
 # Detect language from modified files
 detect_language() {
@@ -124,14 +154,24 @@ while IFS= read -r file; do
         STATUS="committed"
     fi
 
-    # Get symbols
-    SYMBOLS=$(extract_symbols "$file" "$DETECTED_LANGUAGE" | jq -R -s 'split("\n") | map(select(. != ""))' 2>/dev/null || echo "[]")
+    # Get symbols (with fallback to empty array)
+    SYMBOLS_RAW=$(extract_symbols "$file" "$DETECTED_LANGUAGE" 2>/dev/null || echo "")
+    if [ -n "$SYMBOLS_RAW" ]; then
+        SYMBOLS=$(echo "$SYMBOLS_RAW" | jq -R -s 'split("\n") | map(select(. != ""))' 2>/dev/null || echo "[]")
+    else
+        SYMBOLS="[]"
+    fi
+
+    # Validate SYMBOLS is valid JSON
+    if ! echo "$SYMBOLS" | jq . > /dev/null 2>&1; then
+        SYMBOLS="[]"
+    fi
 
     FILE_DETAILS=$(echo "$FILE_DETAILS" | jq \
         --arg path "$file" \
         --arg status "$STATUS" \
         --argjson symbols "$SYMBOLS" \
-        '. + [{path: $path, status: $status, symbols: $symbols}]')
+        '. + [{path: $path, status: $status, symbols: $symbols}]' 2>/dev/null || echo "$FILE_DETAILS")
 done <<< "$ALL_FILES"
 
 # Get recent commits
