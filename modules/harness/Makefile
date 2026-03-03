@@ -4,14 +4,14 @@
 SHELL := /bin/bash
 
 # Include sub-modules
--include $(BUILD_HARNESS_PATH)/modules/harness/defaults.mk
--include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.config
--include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.context
--include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.paude
--include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.intent
--include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.tests
--include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.assist
--include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.deps
+-include $(HARNESS_PATH)/modules/harness/defaults.mk
+-include $(HARNESS_PATH)/modules/harness/Makefile.config
+-include $(HARNESS_PATH)/modules/harness/Makefile.context
+-include $(HARNESS_PATH)/modules/harness/Makefile.paude
+-include $(HARNESS_PATH)/modules/harness/Makefile.intent
+-include $(HARNESS_PATH)/modules/harness/Makefile.tests
+-include $(HARNESS_PATH)/modules/harness/Makefile.assist
+-include $(HARNESS_PATH)/modules/harness/Makefile.deps
 
 # Load project and local config (if exists)
 -include .harness/config.env
@@ -37,7 +37,7 @@ harness/help:
 	@echo "  harness/assist        Interactive implementation assistance"
 	@echo "  harness/cost          Estimate token cost for a command"
 	@echo "  harness/clean         Remove cached context and stop sessions"
-	@echo "  harness/update        Update build-harness to latest version"
+	@echo "  harness/update        Update harness to latest version"
 	@echo ""
 	@echo "Configuration:"
 	@echo "  HARNESS_ISSUE         Override Jira issue detection"
@@ -59,17 +59,17 @@ harness/init:
 	@mkdir -p .harness/.cache
 	@mkdir -p .harness/prompts
 	@if [ ! -f .harness/config.env ]; then \
-		cp $(BUILD_HARNESS_PATH)/modules/harness/templates/config.env.example .harness/config.env; \
+		cp $(HARNESS_PATH)/modules/harness/templates/config.env.example .harness/config.env; \
 		echo "Created .harness/config.env"; \
 	fi
 	@if [ ! -f .harness.local.env ]; then \
-		cp $(BUILD_HARNESS_PATH)/modules/harness/templates/local.env.example .harness.local.env.example; \
+		cp $(HARNESS_PATH)/modules/harness/templates/local.env.example .harness.local.env.example; \
 		echo "Created .harness.local.env.example"; \
 		echo "Copy to .harness.local.env and add your credentials"; \
 	fi
 	@echo ""
 	@echo "Validating prerequisites..."
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/validate-prereqs.sh
+	@$(HARNESS_PATH)/modules/harness/scripts/validate-prereqs.sh
 	@echo ""
 	@echo "Harness initialized successfully!"
 	@echo "Next steps:"
@@ -84,12 +84,12 @@ harness/clean:
 	@echo "Cleaning harness cache..."
 	@rm -rf .harness/.cache/*
 	@echo "Stopping paude sessions..."
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh cleanup || true
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh cleanup || true
 	@echo "Clean complete"
 
 .PHONY: harness/update
-## Update build-harness to latest version
+## Update harness to latest version
 harness/update:
-	@echo "Updating build-harness..."
-	@cd $(BUILD_HARNESS_PATH) && git pull origin $(BUILD_HARNESS_BRANCH) 2>/dev/null || echo "Update skipped (not a git repo)"
+	@echo "Updating harness..."
+	@cd $(HARNESS_PATH) && git pull origin $(HARNESS_BRANCH) 2>/dev/null || echo "Update skipped (not a git repo)"
 	@echo "Update complete"

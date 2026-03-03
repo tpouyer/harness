@@ -9,21 +9,21 @@ harness/context: harness/context/jira harness/context/code harness/context/show
 harness/context/jira:
 	@echo "Fetching Jira context..."
 	@mkdir -p .harness/.cache
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/jira-fetch.sh
+	@$(HARNESS_PATH)/modules/harness/scripts/jira-fetch.sh
 
 ## Analyze local code changes
 harness/context/code:
 	@echo "Analyzing code changes..."
 	@mkdir -p .harness/.cache
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/code-analyze.sh
+	@$(HARNESS_PATH)/modules/harness/scripts/code-analyze.sh
 
 ## Display assembled context
 harness/context/show:
 	@echo ""
 	@echo "Assembled Context"
 	@echo "================="
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/context-assemble.sh show
+	@$(HARNESS_PATH)/modules/harness/scripts/context-assemble.sh show
 
 ## Detect current Jira issue from branch
 harness/context/detect-issue:
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/detect-issue.sh
+	@$(HARNESS_PATH)/modules/harness/scripts/detect-issue.sh

@@ -6,25 +6,25 @@
 harness/suggest-tests: harness/context
 	@echo "Generating tests from acceptance criteria..."
 	@if [ "$(HARNESS_DRY_RUN)" = "true" ]; then \
-		$(BUILD_HARNESS_PATH)/modules/harness/scripts/prompt-render.sh test-generation; \
+		$(HARNESS_PATH)/modules/harness/scripts/prompt-render.sh test-generation; \
 		echo ""; \
 		echo "[Dry run - prompt shown above, agent not called]"; \
 	else \
-		$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh run test-generation $(HARNESS_PROVIDER_TESTS); \
-		$(BUILD_HARNESS_PATH)/modules/harness/scripts/results-format.sh test-generation; \
+		$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh run test-generation $(HARNESS_PROVIDER_TESTS); \
+		$(HARNESS_PATH)/modules/harness/scripts/results-format.sh test-generation; \
 	fi
 
 ## Discover existing tests that cover modified code
 harness/find-tests: harness/context/code
 	@echo "Discovering existing tests..."
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/test-discovery.sh
+	@$(HARNESS_PATH)/modules/harness/scripts/test-discovery.sh
 	@if [ "$(HARNESS_PROVIDER_DISCOVERY)" != "local" ]; then \
 		echo "Running semantic analysis..."; \
-		$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh run test-discovery $(HARNESS_PROVIDER_DISCOVERY); \
+		$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh run test-discovery $(HARNESS_PROVIDER_DISCOVERY); \
 	fi
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/results-format.sh test-discovery
+	@$(HARNESS_PATH)/modules/harness/scripts/results-format.sh test-discovery
 
 ## Analyze test coverage for modified code
 harness/test-coverage: harness/context/code
 	@echo "Analyzing test coverage..."
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/test-coverage.sh
+	@$(HARNESS_PATH)/modules/harness/scripts/test-coverage.sh

@@ -6,11 +6,11 @@
 harness/assist: harness/context
 	@echo "Starting implementation assistance..."
 	@if [ "$(HARNESS_DRY_RUN)" = "true" ]; then \
-		$(BUILD_HARNESS_PATH)/modules/harness/scripts/prompt-render.sh assist; \
+		$(HARNESS_PATH)/modules/harness/scripts/prompt-render.sh assist; \
 		echo ""; \
 		echo "[Dry run - prompt shown above, agent not called]"; \
 	else \
-		$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh interactive assist $(HARNESS_PROVIDER_ASSIST); \
+		$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh interactive assist $(HARNESS_PROVIDER_ASSIST); \
 	fi
 
 ## Run a single query against the assistant
@@ -20,9 +20,9 @@ harness/assist/query:
 		echo "Usage: make harness/assist/query HARNESS_QUERY='your question here'"; \
 		exit 1; \
 	fi
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh query "$(HARNESS_QUERY)" $(HARNESS_PROVIDER_ASSIST)
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh query "$(HARNESS_QUERY)" $(HARNESS_PROVIDER_ASSIST)
 
 ## Estimate token cost for assist session
 harness/cost:
 	@echo "Estimating token costs..."
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/estimate-cost.sh
+	@$(HARNESS_PATH)/modules/harness/scripts/estimate-cost.sh

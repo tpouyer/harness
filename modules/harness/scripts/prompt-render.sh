@@ -5,7 +5,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CACHE_DIR="${HARNESS_CACHE_DIR:-.harness/.cache}"
-PROMPTS_DIR="${BUILD_HARNESS_PATH}/modules/harness/prompts"
+PROMPTS_DIR="${HARNESS_PATH}/modules/harness/prompts"
 PROJECT_PROMPTS=".harness/prompts"
 
 TASK_TYPE="${1:-intent-check}"

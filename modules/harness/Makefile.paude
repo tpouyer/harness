@@ -4,20 +4,20 @@
 
 ## Create a new paude session for the current issue
 harness/paude/create:
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh create
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh create
 
 ## Start/resume a paude session
 harness/paude/start:
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh start
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh start
 
 ## Stop the current paude session
 harness/paude/stop:
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh stop
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh stop
 
 ## List all harness paude sessions
 harness/paude/list:
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh list
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh list
 
 ## Show logs from current paude session
 harness/paude/logs:
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh logs
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh logs

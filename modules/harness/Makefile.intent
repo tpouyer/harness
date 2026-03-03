@@ -4,25 +4,25 @@
 
 ## Check alignment between Jira intent and local code changes
 harness/intent-check: harness/context harness/intent-check/analyze
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/results-format.sh intent-check
+	@$(HARNESS_PATH)/modules/harness/scripts/results-format.sh intent-check
 
 ## Analyze intent from both Jira and code, then compare
 harness/intent-check/analyze:
 	@echo "Analyzing intent alignment..."
 	@if [ "$(HARNESS_DRY_RUN)" = "true" ]; then \
-		$(BUILD_HARNESS_PATH)/modules/harness/scripts/prompt-render.sh intent-check; \
+		$(HARNESS_PATH)/modules/harness/scripts/prompt-render.sh intent-check; \
 		echo ""; \
 		echo "[Dry run - prompt shown above, agent not called]"; \
 	else \
-		$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh run intent-check $(HARNESS_PROVIDER_INTENT); \
+		$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh run intent-check $(HARNESS_PROVIDER_INTENT); \
 	fi
 
 ## Extract intent from Jira artifacts only
 harness/intent-check/jira: harness/context/jira
 	@echo "Extracting Jira intent..."
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh run intent-jira $(HARNESS_PROVIDER_INTENT)
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh run intent-jira $(HARNESS_PROVIDER_INTENT)
 
 ## Extract intent from code changes only
 harness/intent-check/code: harness/context/code
 	@echo "Extracting code intent..."
-	@$(BUILD_HARNESS_PATH)/modules/harness/scripts/paude-session.sh run intent-code $(HARNESS_PROVIDER_INTENT)
+	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh run intent-code $(HARNESS_PROVIDER_INTENT)
