@@ -11,6 +11,7 @@ SHELL := /bin/bash
 -include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.intent
 -include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.tests
 -include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.assist
+-include $(BUILD_HARNESS_PATH)/modules/harness/Makefile.deps
 
 # Load project and local config (if exists)
 -include .harness/config.env
@@ -21,8 +22,13 @@ SHELL := /bin/bash
 harness/help:
 	@echo "Harness - AI Agent Framework"
 	@echo ""
-	@echo "Core Targets:"
+	@echo "Setup & Dependencies:"
 	@echo "  harness/init          Initialize harness for this project"
+	@echo "  harness/deps          Install all dependencies (paude, jq, podman)"
+	@echo "  harness/deps/check    Check dependency status"
+	@echo "  harness/deps/help     Show all dependency install options"
+	@echo ""
+	@echo "Core Targets:"
 	@echo "  harness/config        Display resolved configuration"
 	@echo "  harness/context       Assemble and display context (Jira + code)"
 	@echo "  harness/intent-check  Check alignment between Jira and code"
@@ -41,6 +47,7 @@ harness/help:
 	@echo "  HARNESS_NO_CACHE      Skip Jira cache"
 	@echo ""
 	@echo "Examples:"
+	@echo "  make harness/deps             # Install all dependencies"
 	@echo "  make harness/intent-check"
 	@echo "  make harness/intent-check HARNESS_ISSUE=PROJ-1234"
 	@echo "  make harness/assist HARNESS_AI_PROVIDER=openai"

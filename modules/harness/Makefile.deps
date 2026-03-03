@@ -1,0 +1,231 @@
+# Harness Dependency Installation
+# Automated installation of all harness dependencies
+
+SHELL := /bin/bash
+
+# Detect OS
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+# Package manager detection
+HAS_BREW := $(shell command -v brew 2>/dev/null)
+HAS_APT := $(shell command -v apt-get 2>/dev/null)
+HAS_DNF := $(shell command -v dnf 2>/dev/null)
+HAS_YUM := $(shell command -v yum 2>/dev/null)
+HAS_PIP := $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
+HAS_PIPX := $(shell command -v pipx 2>/dev/null)
+
+# Python command
+PYTHON := $(shell command -v python3 2>/dev/null || command -v python 2>/dev/null)
+PIP := $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
+
+.PHONY: harness/deps harness/deps/all harness/deps/check harness/deps/install
+.PHONY: harness/deps/paude harness/deps/jq harness/deps/podman harness/deps/python
+
+## Install all harness dependencies
+harness/deps: harness/deps/all
+
+## Install all dependencies (paude, jq, podman, etc.)
+harness/deps/all: harness/deps/check
+	@echo "Installing all harness dependencies..."
+	@$(MAKE) harness/deps/jq
+	@$(MAKE) harness/deps/podman
+	@$(MAKE) harness/deps/python
+	@$(MAKE) harness/deps/paude
+	@echo ""
+	@echo "All dependencies installed. Run 'make harness/deps/check' to verify."
+
+## Check status of all dependencies
+harness/deps/check:
+	@echo "Harness Dependency Status"
+	@echo "========================="
+	@echo ""
+	@echo "System: $(UNAME_S) $(UNAME_M)"
+	@echo ""
+	@echo "Required:"
+	@printf "  %-12s " "git:" && (command -v git >/dev/null 2>&1 && echo "✓ $$(git --version)" || echo "✗ Not installed")
+	@printf "  %-12s " "curl:" && (command -v curl >/dev/null 2>&1 && echo "✓ $$(curl --version | head -1)" || echo "✗ Not installed")
+	@printf "  %-12s " "jq:" && (command -v jq >/dev/null 2>&1 && echo "✓ $$(jq --version)" || echo "✗ Not installed")
+	@printf "  %-12s " "make:" && (command -v make >/dev/null 2>&1 && echo "✓ $$(make --version | head -1)" || echo "✗ Not installed")
+	@echo ""
+	@echo "Container Runtime (one required):"
+	@printf "  %-12s " "podman:" && (command -v podman >/dev/null 2>&1 && echo "✓ $$(podman --version)" || echo "✗ Not installed")
+	@printf "  %-12s " "docker:" && (command -v docker >/dev/null 2>&1 && echo "✓ $$(docker --version)" || echo "○ Not installed (optional)")
+	@echo ""
+	@echo "Python Environment:"
+	@printf "  %-12s " "python:" && (command -v python3 >/dev/null 2>&1 && echo "✓ $$(python3 --version)" || (command -v python >/dev/null 2>&1 && echo "✓ $$(python --version)" || echo "✗ Not installed"))
+	@printf "  %-12s " "pip:" && (command -v pip3 >/dev/null 2>&1 && echo "✓ $$(pip3 --version | cut -d' ' -f1-2)" || (command -v pip >/dev/null 2>&1 && echo "✓ $$(pip --version | cut -d' ' -f1-2)" || echo "✗ Not installed"))
+	@printf "  %-12s " "paude:" && (command -v paude >/dev/null 2>&1 && echo "✓ installed" || ($(PIP) show paude >/dev/null 2>&1 && echo "✓ installed (not in PATH)" || echo "✗ Not installed"))
+	@echo ""
+	@echo "Optional:"
+	@printf "  %-12s " "tree-sitter:" && (command -v tree-sitter >/dev/null 2>&1 && echo "✓ installed" || echo "○ Not installed")
+	@printf "  %-12s " "gh:" && (command -v gh >/dev/null 2>&1 && echo "✓ $$(gh --version | head -1)" || echo "○ Not installed")
+	@echo ""
+
+## Install paude (AI agent container manager)
+harness/deps/paude:
+	@echo "Installing paude..."
+	@if command -v paude >/dev/null 2>&1; then \
+		echo "paude is already installed"; \
+	elif [ -n "$(HAS_PIPX)" ]; then \
+		echo "Installing with pipx..."; \
+		pipx install paude || pipx upgrade paude; \
+	elif [ -n "$(HAS_PIP)" ]; then \
+		echo "Installing with pip..."; \
+		$(PIP) install --user paude || $(PIP) install paude; \
+	else \
+		echo "Error: pip not found. Install Python first."; \
+		exit 1; \
+	fi
+	@echo "paude installation complete"
+
+## Install jq (JSON processor)
+harness/deps/jq:
+	@echo "Installing jq..."
+	@if command -v jq >/dev/null 2>&1; then \
+		echo "jq is already installed"; \
+	elif [ "$(UNAME_S)" = "Darwin" ] && [ -n "$(HAS_BREW)" ]; then \
+		brew install jq; \
+	elif [ -n "$(HAS_APT)" ]; then \
+		sudo apt-get update && sudo apt-get install -y jq; \
+	elif [ -n "$(HAS_DNF)" ]; then \
+		sudo dnf install -y jq; \
+	elif [ -n "$(HAS_YUM)" ]; then \
+		sudo yum install -y jq; \
+	else \
+		echo "Error: Could not detect package manager. Install jq manually."; \
+		echo "  macOS: brew install jq"; \
+		echo "  Ubuntu/Debian: sudo apt-get install jq"; \
+		echo "  RHEL/Fedora: sudo dnf install jq"; \
+		exit 1; \
+	fi
+
+## Install podman (container runtime)
+harness/deps/podman:
+	@echo "Installing podman..."
+	@if command -v podman >/dev/null 2>&1; then \
+		echo "podman is already installed"; \
+	elif [ "$(UNAME_S)" = "Darwin" ] && [ -n "$(HAS_BREW)" ]; then \
+		brew install podman; \
+		echo ""; \
+		echo "NOTE: Run 'podman machine init && podman machine start' to initialize"; \
+	elif [ -n "$(HAS_APT)" ]; then \
+		sudo apt-get update && sudo apt-get install -y podman; \
+	elif [ -n "$(HAS_DNF)" ]; then \
+		sudo dnf install -y podman; \
+	elif [ -n "$(HAS_YUM)" ]; then \
+		sudo yum install -y podman; \
+	else \
+		echo "Error: Could not detect package manager. Install podman manually."; \
+		echo "  macOS: brew install podman"; \
+		echo "  Ubuntu/Debian: sudo apt-get install podman"; \
+		echo "  RHEL/Fedora: sudo dnf install podman"; \
+		echo "  See: https://podman.io/getting-started/installation"; \
+		exit 1; \
+	fi
+
+## Install/upgrade Python and pip
+harness/deps/python:
+	@echo "Checking Python installation..."
+	@if command -v python3 >/dev/null 2>&1; then \
+		echo "Python is already installed: $$(python3 --version)"; \
+	elif [ "$(UNAME_S)" = "Darwin" ] && [ -n "$(HAS_BREW)" ]; then \
+		echo "Installing Python via Homebrew..."; \
+		brew install python; \
+	elif [ -n "$(HAS_APT)" ]; then \
+		sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv; \
+	elif [ -n "$(HAS_DNF)" ]; then \
+		sudo dnf install -y python3 python3-pip; \
+	else \
+		echo "Error: Could not detect package manager. Install Python manually."; \
+		exit 1; \
+	fi
+	@echo "Ensuring pip is up to date..."
+	@$(PYTHON) -m pip install --upgrade pip 2>/dev/null || true
+
+## Install optional tree-sitter CLI (for advanced code analysis)
+harness/deps/tree-sitter:
+	@echo "Installing tree-sitter CLI..."
+	@if command -v tree-sitter >/dev/null 2>&1; then \
+		echo "tree-sitter is already installed"; \
+	elif [ "$(UNAME_S)" = "Darwin" ] && [ -n "$(HAS_BREW)" ]; then \
+		brew install tree-sitter; \
+	elif [ -n "$(HAS_PIP)" ]; then \
+		$(PIP) install --user tree-sitter-cli || $(PIP) install tree-sitter-cli; \
+	else \
+		echo "Install via: cargo install tree-sitter-cli"; \
+		echo "Or: npm install -g tree-sitter-cli"; \
+	fi
+
+## Install GitHub CLI (for PR operations)
+harness/deps/gh:
+	@echo "Installing GitHub CLI..."
+	@if command -v gh >/dev/null 2>&1; then \
+		echo "gh is already installed"; \
+	elif [ "$(UNAME_S)" = "Darwin" ] && [ -n "$(HAS_BREW)" ]; then \
+		brew install gh; \
+	elif [ -n "$(HAS_APT)" ]; then \
+		curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg; \
+		echo "deb [arch=$$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null; \
+		sudo apt-get update && sudo apt-get install -y gh; \
+	elif [ -n "$(HAS_DNF)" ]; then \
+		sudo dnf install -y gh; \
+	else \
+		echo "See: https://github.com/cli/cli#installation"; \
+	fi
+
+## Initialize podman machine (macOS only)
+harness/deps/podman-init:
+	@echo "Initializing podman machine..."
+	@if [ "$(UNAME_S)" != "Darwin" ]; then \
+		echo "Podman machine init is only needed on macOS"; \
+		exit 0; \
+	fi
+	@if ! command -v podman >/dev/null 2>&1; then \
+		echo "Error: podman not installed. Run 'make harness/deps/podman' first."; \
+		exit 1; \
+	fi
+	@if podman machine list 2>/dev/null | grep -q "Currently running"; then \
+		echo "Podman machine is already running"; \
+	else \
+		echo "Initializing podman machine..."; \
+		podman machine init 2>/dev/null || true; \
+		echo "Starting podman machine..."; \
+		podman machine start; \
+	fi
+
+## Uninstall paude
+harness/deps/paude-uninstall:
+	@echo "Uninstalling paude..."
+	@if [ -n "$(HAS_PIPX)" ]; then \
+		pipx uninstall paude 2>/dev/null || true; \
+	fi
+	@$(PIP) uninstall -y paude 2>/dev/null || true
+	@echo "paude uninstalled"
+
+## Show installation instructions for all platforms
+harness/deps/help:
+	@echo "Harness Dependency Installation"
+	@echo "================================"
+	@echo ""
+	@echo "Quick install (all dependencies):"
+	@echo "  make harness/deps/all"
+	@echo ""
+	@echo "Individual components:"
+	@echo "  make harness/deps/jq          Install jq JSON processor"
+	@echo "  make harness/deps/podman      Install podman container runtime"
+	@echo "  make harness/deps/podman-init Initialize podman machine (macOS)"
+	@echo "  make harness/deps/python      Install/upgrade Python"
+	@echo "  make harness/deps/paude       Install paude agent manager"
+	@echo "  make harness/deps/tree-sitter Install tree-sitter (optional)"
+	@echo "  make harness/deps/gh          Install GitHub CLI (optional)"
+	@echo ""
+	@echo "Utilities:"
+	@echo "  make harness/deps/check       Check dependency status"
+	@echo "  make harness/deps/help        Show this help"
+	@echo ""
+	@echo "Supported platforms:"
+	@echo "  - macOS (via Homebrew)"
+	@echo "  - Ubuntu/Debian (via apt)"
+	@echo "  - RHEL/Fedora/CentOS (via dnf/yum)"
+	@echo ""
