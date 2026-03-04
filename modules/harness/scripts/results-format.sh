@@ -77,11 +77,28 @@ format_markdown() {
 
             TESTS=$(jq '.result.tests // []' "$RESULT_FILE")
             TEST_COUNT=$(echo "$TESTS" | jq 'length')
+            UNIT_COUNT=$(echo "$TESTS" | jq '[.[] | select(.repo == "local" or .test_type == "unit")] | length')
+            FUNC_COUNT=$(echo "$TESTS" | jq '[.[] | select(.repo == "functional" or .test_type == "functional")] | length')
 
-            echo "Generated **$TEST_COUNT** test(s)"
+            echo "Generated **$TEST_COUNT** test(s): $UNIT_COUNT unit, $FUNC_COUNT functional"
             echo ""
 
-            echo "$TESTS" | jq -r '.[] | "### \(.test_name)\n\n**File:** \(.file_path)\n**Type:** \(.test_type)\n**Source:** \(.source_requirement)\n\n```\n\(.code)\n```\n"'
+            UNIT_TESTS=$(echo "$TESTS" | jq '[.[] | select(.repo == "local" or .test_type == "unit")]')
+            FUNC_TESTS=$(echo "$TESTS" | jq '[.[] | select(.repo == "functional" or .test_type == "functional")]')
+
+            if [ "$(echo "$UNIT_TESTS" | jq 'length')" -gt 0 ]; then
+                echo "### Unit Tests (local repo)"
+                echo ""
+                echo "$UNIT_TESTS" | jq -r '.[] | "#### \(.test_name)\n\n**File:** \(.file_path)\n**Source:** \(.source_requirement)\n\n```\n\(.code)\n```\n"'
+            fi
+
+            if [ "$(echo "$FUNC_TESTS" | jq 'length')" -gt 0 ]; then
+                echo "### Functional Tests (functional test repo — requires aap-dev)"
+                echo ""
+                echo "$FUNC_TESTS" | jq -r '.[] | "#### \(.test_name)\n\n**File:** \(.file_path)\n**Source:** \(.source_requirement)\n\n```\n\(.code)\n```\n"'
+                echo ""
+                echo "> Run \`make harness/commit-func-tests\` to branch, commit, and open a PR in the functional test repo."
+            fi
             ;;
 
         test-discovery)
@@ -90,18 +107,38 @@ format_markdown() {
 
             COVERED=$(jq '.result.covered // []' "$RESULT_FILE")
             GAPS=$(jq '.result.gaps // []' "$RESULT_FILE")
+            FUNC_REPO=$(jq -r '._meta.func_test_repo // "not configured"' "$RESULT_FILE")
 
-            echo "### Covered by Existing Tests"
-            if [ "$(echo "$COVERED" | jq 'length')" -gt 0 ]; then
-                echo "$COVERED" | jq -r '.[] | "- \(.test_file):\(.test_name) covers \(.covers | join(", "))"'
+            UNIT_COVERED=$(echo "$COVERED" | jq '[.[] | select(.test_category == "unit")] | length')
+            FUNC_COVERED=$(echo "$COVERED" | jq '[.[] | select(.test_category == "functional")] | length')
+
+            echo "**Unit tests found:** $UNIT_COVERED  |  **Functional tests found:** $FUNC_COVERED"
+            echo "**Functional test repo:** $FUNC_REPO"
+            echo ""
+
+            echo "### Unit Test Coverage (local repo)"
+            UNIT_TESTS=$(echo "$COVERED" | jq '[.[] | select(.test_category == "unit")]')
+            if [ "$(echo "$UNIT_TESTS" | jq 'length')" -gt 0 ]; then
+                echo "$UNIT_TESTS" | jq -r '.[] | "- \(.test_file) covers \(.covers | join(", "))\n  Tests: \(.test_names | join(", "))"'
             else
-                echo "No existing test coverage found"
+                echo "No unit test coverage found"
+            fi
+
+            echo ""
+            echo "### Functional Test Coverage (functional test repo)"
+            FUNC_TESTS=$(echo "$COVERED" | jq '[.[] | select(.test_category == "functional")]')
+            if [ "$(echo "$FUNC_TESTS" | jq 'length')" -gt 0 ]; then
+                echo "$FUNC_TESTS" | jq -r '.[] | "- \(.test_file) covers \(.covers | join(", "))\n  Tests: \(.test_names | join(", "))"'
+            else
+                echo "No functional test coverage found"
             fi
 
             echo ""
             echo "### Coverage Gaps"
             if [ "$(echo "$GAPS" | jq 'length')" -gt 0 ]; then
-                echo "$GAPS" | jq -r '.[] | "- \(.file):\(.symbol) - Suggested: \(.suggested_test)"'
+                echo "$GAPS" | jq -r '.[] | "- \(.file) (\(.symbol))\n  Suggested unit:       \(.suggested_unit_test)\n  Suggested functional: \(.suggested_func_test)"'
+                echo ""
+                echo "> Run \`make harness/suggest-tests\` to generate tests for these gaps."
             else
                 echo "No coverage gaps identified"
             fi

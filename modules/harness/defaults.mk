@@ -40,3 +40,13 @@ export HARNESS_TEST_FRAMEWORK ?= auto
 # Context limits
 export HARNESS_MAX_CONTEXT_TOKENS ?= 100000
 export HARNESS_MAX_FILES ?= 50
+
+# Functional Test Repository
+# Path to the separate repo where functional (aap-dev) tests live
+export HARNESS_FUNC_TEST_REPO ?=
+# Prefix for feature branches created in the functional test repo
+export HARNESS_FUNC_TEST_BRANCH_PREFIX ?= harness/
+# Remote name to push functional test branches to
+export HARNESS_FUNC_TEST_REMOTE ?= origin
+# Default branch in the functional test repo (PR target)
+export HARNESS_FUNC_TEST_DEFAULT_BRANCH ?= main

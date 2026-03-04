@@ -1,5 +1,7 @@
 #!/bin/bash
-# Discover existing tests that cover modified code
+# Discover existing tests that cover modified code.
+# Searches the local repo for unit tests and, if configured,
+# the functional test repo for functional (aap-dev) tests.
 
 set -e
 
@@ -16,38 +18,36 @@ if [ ! -f "$CODE_CONTEXT" ]; then
     exit 1
 fi
 
-echo "Discovering tests for modified code..."
-
 LANGUAGE=$(jq -r '.repository.detected_language' "$CODE_CONTEXT")
 MODIFIED_FILES=$(jq -r '.changes.files[].path' "$CODE_CONTEXT")
 
 COVERED="[]"
 GAPS="[]"
 
-# Find test directories
-TEST_DIRS=""
-for pattern in "tests" "test" "__tests__" "spec" "*_test" "test_*"; do
-    if ls -d $pattern 2>/dev/null; then
-        TEST_DIRS="$TEST_DIRS $(ls -d $pattern 2>/dev/null)"
-    fi
-done
+# ---------------------------------------------------------------------------
+# Helper: search a directory for tests matching a source file
+# Arguments: source_file language search_root test_category repo_label repo_path
+# ---------------------------------------------------------------------------
+search_tests_for_file() {
+    local file="$1"
+    local language="$2"
+    local search_root="$3"
+    local test_category="$4"
+    local repo_label="$5"
+    local repo_path="$6"
 
-# Match modified files to tests
-while IFS= read -r file; do
-    [ -z "$file" ] && continue
-
+    local BASENAME
     BASENAME=$(basename "$file" | sed 's/\.[^.]*$//')
+    local DIRNAME
     DIRNAME=$(dirname "$file")
 
-    # Generate possible test file patterns
-    PATTERNS=()
-    case "$LANGUAGE" in
+    local PATTERNS=()
+    case "$language" in
         python)
-            PATTERNS+=("test_${BASENAME}.py" "${BASENAME}_test.py" "tests/test_${BASENAME}.py")
+            PATTERNS+=("test_${BASENAME}.py" "${BASENAME}_test.py")
             ;;
         typescript|javascript)
             PATTERNS+=("${BASENAME}.test.ts" "${BASENAME}.test.js" "${BASENAME}.spec.ts" "${BASENAME}.spec.js")
-            PATTERNS+=("__tests__/${BASENAME}.test.ts" "__tests__/${BASENAME}.test.js")
             ;;
         go)
             PATTERNS+=("${BASENAME}_test.go" "${DIRNAME}/${BASENAME}_test.go")
@@ -60,69 +60,174 @@ while IFS= read -r file; do
             ;;
     esac
 
-    FOUND_TEST=""
+    local FOUND_TEST=""
     for pattern in "${PATTERNS[@]}"; do
-        MATCHES=$(find . -name "$pattern" -type f 2>/dev/null | head -1 || true)
+        local MATCHES
+        MATCHES=$(find "$search_root" -name "$pattern" -type f 2>/dev/null | head -1 || true)
         if [ -n "$MATCHES" ]; then
             FOUND_TEST="$MATCHES"
             break
         fi
     done
 
-    if [ -n "$FOUND_TEST" ]; then
-        # Extract test names from the file
-        TEST_NAMES="[]"
-        case "$LANGUAGE" in
+    # Fallback: grep for the basename inside test files in the search root
+    if [ -z "$FOUND_TEST" ]; then
+        case "$language" in
             python)
-                TEST_NAMES=$(grep -E '^\s*def test_' "$FOUND_TEST" 2>/dev/null | sed 's/.*def \(test_[^(]*\).*/\1/' | jq -R -s 'split("\n") | map(select(. != ""))' || echo "[]")
+                FOUND_TEST=$(grep -rl "$BASENAME" "$search_root" --include="test_*.py" --include="*_test.py" 2>/dev/null | head -1 || true)
                 ;;
             typescript|javascript)
-                TEST_NAMES=$(grep -E "(it|test|describe)\(['\"]" "$FOUND_TEST" 2>/dev/null | sed "s/.*['\"]\\([^'\"]*\\)['\"].*/\\1/" | jq -R -s 'split("\n") | map(select(. != ""))' || echo "[]")
+                FOUND_TEST=$(grep -rl "$BASENAME" "$search_root" --include="*.test.ts" --include="*.test.js" --include="*.spec.ts" --include="*.spec.js" 2>/dev/null | head -1 || true)
                 ;;
             go)
-                TEST_NAMES=$(grep -E '^func Test' "$FOUND_TEST" 2>/dev/null | sed 's/func \(Test[^(]*\).*/\1/' | jq -R -s 'split("\n") | map(select(. != ""))' || echo "[]")
+                FOUND_TEST=$(grep -rl "$BASENAME" "$search_root" --include="*_test.go" 2>/dev/null | head -1 || true)
                 ;;
         esac
+    fi
 
+    echo "$FOUND_TEST|$test_category|$repo_label|$repo_path|$BASENAME"
+}
+
+# ---------------------------------------------------------------------------
+# Extract test names from a found test file
+# ---------------------------------------------------------------------------
+extract_test_names() {
+    local found_test="$1"
+    local language="$2"
+
+    local TEST_NAMES="[]"
+    case "$language" in
+        python)
+            TEST_NAMES=$(grep -E '^\s*def test_' "$found_test" 2>/dev/null \
+                | sed 's/.*def \(test_[^(]*\).*/\1/' \
+                | jq -R -s 'split("\n") | map(select(. != ""))' || echo "[]")
+            ;;
+        typescript|javascript)
+            TEST_NAMES=$(grep -E "(it|test|describe)\(['\"]" "$found_test" 2>/dev/null \
+                | sed "s/.*['\"]\\([^'\"]*\\)['\"].*/\\1/" \
+                | jq -R -s 'split("\n") | map(select(. != ""))' || echo "[]")
+            ;;
+        go)
+            TEST_NAMES=$(grep -E '^func Test' "$found_test" 2>/dev/null \
+                | sed 's/func \(Test[^(]*\).*/\1/' \
+                | jq -R -s 'split("\n") | map(select(. != ""))' || echo "[]")
+            ;;
+    esac
+    echo "$TEST_NAMES"
+}
+
+# ---------------------------------------------------------------------------
+# Resolve and validate the functional test repo path
+# ---------------------------------------------------------------------------
+FUNC_REPO=""
+if [ -n "$HARNESS_FUNC_TEST_REPO" ]; then
+    # Expand ~ and relative paths
+    FUNC_REPO=$(eval echo "$HARNESS_FUNC_TEST_REPO")
+    if [ ! -d "$FUNC_REPO" ]; then
+        echo "Warning: HARNESS_FUNC_TEST_REPO path not found: $FUNC_REPO" >&2
+        echo "  Functional test discovery skipped." >&2
+        FUNC_REPO=""
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Main discovery loop
+# ---------------------------------------------------------------------------
+echo "Discovering tests for modified code..."
+[ -n "$FUNC_REPO" ] && echo "  Unit tests:       $(pwd)"
+[ -n "$FUNC_REPO" ] && echo "  Functional tests: $FUNC_REPO"
+
+while IFS= read -r file; do
+    [ -z "$file" ] && continue
+
+    BASENAME=$(basename "$file" | sed 's/\.[^.]*$//')
+
+    # --- Unit test search (local repo) ---
+    UNIT_RESULT=$(search_tests_for_file "$file" "$LANGUAGE" "." "unit" "local" "$(pwd)")
+    UNIT_FOUND=$(echo "$UNIT_RESULT" | cut -d'|' -f1)
+
+    if [ -n "$UNIT_FOUND" ]; then
+        TEST_NAMES=$(extract_test_names "$UNIT_FOUND" "$LANGUAGE")
         COVERED=$(echo "$COVERED" | jq \
-            --arg test_file "$FOUND_TEST" \
+            --arg test_file "$UNIT_FOUND" \
             --arg source_file "$file" \
             --argjson test_names "$TEST_NAMES" \
+            --arg test_category "unit" \
+            --arg repo "local" \
             '. + [{
                 test_file: $test_file,
                 covers: [$source_file],
                 test_names: $test_names,
-                match_type: "naming"
+                test_category: $test_category,
+                repo: $repo,
+                match_type: "structural"
             }]')
-    else
-        # Add to gaps
+    fi
+
+    # --- Functional test search (separate repo) ---
+    FUNC_FOUND=""
+    if [ -n "$FUNC_REPO" ]; then
+        FUNC_RESULT=$(search_tests_for_file "$file" "$LANGUAGE" "$FUNC_REPO" "functional" "functional" "$FUNC_REPO")
+        FUNC_FOUND=$(echo "$FUNC_RESULT" | cut -d'|' -f1)
+
+        if [ -n "$FUNC_FOUND" ]; then
+            TEST_NAMES=$(extract_test_names "$FUNC_FOUND" "$LANGUAGE")
+            COVERED=$(echo "$COVERED" | jq \
+                --arg test_file "$FUNC_FOUND" \
+                --arg source_file "$file" \
+                --argjson test_names "$TEST_NAMES" \
+                --arg test_category "functional" \
+                --arg repo "$FUNC_REPO" \
+                '. + [{
+                    test_file: $test_file,
+                    covers: [$source_file],
+                    test_names: $test_names,
+                    test_category: $test_category,
+                    repo: $repo,
+                    match_type: "structural"
+                }]')
+        fi
+    fi
+
+    # Track gaps: neither unit nor functional coverage found
+    if [ -z "$UNIT_FOUND" ] && [ -z "$FUNC_FOUND" ]; then
         GAPS=$(echo "$GAPS" | jq \
             --arg file "$file" \
             --arg basename "$BASENAME" \
             '. + [{
                 file: $file,
                 symbol: $basename,
-                suggested_test: "test_\($basename)"
+                suggested_unit_test: "test_\($basename)",
+                suggested_func_test: "test_\($basename)_functional"
             }]')
     fi
+
 done <<< "$MODIFIED_FILES"
 
+# ---------------------------------------------------------------------------
 # Build result
+# ---------------------------------------------------------------------------
+FUNC_REPO_LABEL="${FUNC_REPO:-not configured}"
+
 jq -n \
     --argjson covered "$COVERED" \
     --argjson gaps "$GAPS" \
+    --arg func_repo "$FUNC_REPO_LABEL" \
     '{
         covered: $covered,
         gaps: $gaps,
         _meta: {
             discovered_at: (now | todate),
-            method: "structural"
+            method: "structural",
+            func_test_repo: $func_repo
         }
     }' > "$RESULT_FILE"
 
-COVERED_COUNT=$(echo "$COVERED" | jq 'length')
+COVERED_UNIT=$(echo "$COVERED" | jq '[.[] | select(.test_category == "unit")] | length')
+COVERED_FUNC=$(echo "$COVERED" | jq '[.[] | select(.test_category == "functional")] | length')
 GAP_COUNT=$(echo "$GAPS" | jq 'length')
 
 echo "Discovery complete:"
-echo "  Tests found: $COVERED_COUNT"
-echo "  Coverage gaps: $GAP_COUNT"
+echo "  Unit tests found:       $COVERED_UNIT"
+echo "  Functional tests found: $COVERED_FUNC"
+echo "  Coverage gaps:          $GAP_COUNT"
