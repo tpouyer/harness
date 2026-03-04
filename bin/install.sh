@@ -4,7 +4,7 @@
 
 set -e
 
-HARNESS_ORG="${HARNESS_ORG:-your-org}"
+HARNESS_ORG="${HARNESS_ORG:-ansible-automation-platform}"
 HARNESS_PROJECT="${HARNESS_PROJECT:-harness}"
 HARNESS_BRANCH="${HARNESS_BRANCH:-main}"
 HARNESS_PATH="${HARNESS_PATH:-.harness-framework}"

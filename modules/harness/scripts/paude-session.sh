@@ -18,7 +18,7 @@ SESSION_NAME="harness-${ISSUE}"
 # Container image based on provider
 get_container_image() {
     local provider="$1"
-    echo "${HARNESS_CONTAINER_REGISTRY:-ghcr.io/your-org}/harness-${provider}:latest"
+    echo "${HARNESS_CONTAINER_REGISTRY:-ghcr.io/ansible-automation-platform}/harness-${provider}:latest"
 }
 
 case "$ACTION" in

@@ -23,7 +23,7 @@ export HARNESS_PROVIDER_DISCOVERY ?= local
 # Paude Configuration
 export HARNESS_PAUDE_BACKEND ?= podman
 export HARNESS_PAUDE_ALLOWED_DOMAINS ?= api.anthropic.com,api.openai.com,*.atlassian.net
-export HARNESS_CONTAINER_REGISTRY ?= ghcr.io/your-org
+export HARNESS_CONTAINER_REGISTRY ?= ghcr.io/ansible-automation-platform
 
 # Cache Configuration
 export HARNESS_CACHE_TTL ?= 1800
