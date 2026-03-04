@@ -30,10 +30,3 @@ endif
 export HARNESS_PATH := $(CURDIR)/$(HARNESS_FRAMEWORK_DIR)
 
 -include $(HARNESS_FRAMEWORK_DIR)/Makefile
-
-## Update the harness framework to the latest version
-.PHONY: harness/update
-harness/update:
-	@echo "[harness] Updating framework..."
-	@cd $(HARNESS_FRAMEWORK_DIR) && git fetch --quiet && git pull --ff-only
-	@echo "[harness] Updated to $(shell cd $(HARNESS_FRAMEWORK_DIR) && git rev-parse --short HEAD)"
