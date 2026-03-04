@@ -13,6 +13,7 @@ SHELL := /bin/bash
 -include $(HARNESS_PATH)/modules/harness/Makefile.assist
 -include $(HARNESS_PATH)/modules/harness/Makefile.deps
 -include $(HARNESS_PATH)/modules/harness/Makefile.aap-dev
+-include $(HARNESS_PATH)/modules/harness/Makefile.spec-kit
 
 # Load project and local config (if exists)
 -include .harness/config.env
@@ -34,6 +35,11 @@ harness/help:
 	@echo "  harness/aap-dev/start     Start AAP dev environment"
 	@echo "  harness/aap-dev/stop      Stop AAP dev environment"
 	@echo "  harness/aap-dev/help      Show all aap-dev commands"
+	@echo ""
+	@echo "Spec-Driven Development:"
+	@echo "  harness/spec-kit/install  Install specify CLI"
+	@echo "  harness/spec-kit/workflow Run full workflow (spec→plan→tasks)"
+	@echo "  harness/spec-kit/help     Show all spec-kit commands"
 	@echo ""
 	@echo "Core Targets:"
 	@echo "  harness/config        Display resolved configuration"

@@ -1,0 +1,340 @@
+# Harness Spec-Kit Integration
+# Spec-Driven Development toolkit integration
+# https://github.com/github/spec-kit
+
+SHELL := /bin/bash
+
+# Spec-Kit Configuration
+export SPEC_KIT_REPO ?= https://github.com/github/spec-kit.git
+export SPEC_KIT_AI ?= claude
+export SPEC_KIT_SPEC_DIR ?= .spec-kit
+export SPEC_KIT_AUTO_JIRA ?= true
+
+.PHONY: harness/spec-kit/help
+## Show Spec-Kit help
+harness/spec-kit/help:
+	@echo "Harness Spec-Kit Integration"
+	@echo "============================="
+	@echo ""
+	@echo "Spec-Driven Development toolkit for building high-quality software"
+	@echo "Repository: https://github.com/github/spec-kit"
+	@echo ""
+	@echo "Setup:"
+	@echo "  harness/spec-kit/install     Install specify CLI (via uv)"
+	@echo "  harness/spec-kit/init        Initialize spec-kit in current project"
+	@echo "  harness/spec-kit/check       Verify spec-kit tools are installed"
+	@echo ""
+	@echo "Workflow (Jira-integrated):"
+	@echo "  harness/spec-kit/specify     Generate spec from Jira story context"
+	@echo "  harness/spec-kit/plan        Create implementation plan"
+	@echo "  harness/spec-kit/tasks       Break down plan into tasks"
+	@echo "  harness/spec-kit/implement   Execute implementation"
+	@echo "  harness/spec-kit/workflow    Run full workflow (specify→plan→tasks)"
+	@echo ""
+	@echo "Standalone (no Jira):"
+	@echo "  harness/spec-kit/specify-manual   Create spec interactively"
+	@echo "  harness/spec-kit/constitution     Set up project principles"
+	@echo ""
+	@echo "Utilities:"
+	@echo "  harness/spec-kit/status      Show current spec-kit status"
+	@echo "  harness/spec-kit/clean       Remove spec-kit files"
+	@echo ""
+	@echo "Configuration:"
+	@echo "  SPEC_KIT_AI          AI agent to use (default: claude)"
+	@echo "  SPEC_KIT_SPEC_DIR    Spec directory (default: .spec-kit)"
+	@echo "  SPEC_KIT_AUTO_JIRA   Auto-fetch Jira context (default: true)"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make harness/spec-kit/install"
+	@echo "  make harness/spec-kit/init"
+	@echo "  make harness/spec-kit/specify HARNESS_ISSUE=PROJ-123"
+	@echo "  make harness/spec-kit/workflow"
+
+# ═══════════════════════════════════════════════════════════════
+# INSTALLATION & SETUP
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/spec-kit/check
+## Check if spec-kit tools are installed
+harness/spec-kit/check:
+	@echo "Spec-Kit Tool Check"
+	@echo "==================="
+	@echo ""
+	@ERRORS=0; \
+	if command -v uv >/dev/null 2>&1; then \
+		echo "✓ uv: $$(uv --version)"; \
+	else \
+		echo "✗ uv: NOT INSTALLED"; \
+		echo "  Install: curl -LsSf https://astral.sh/uv/install.sh | sh"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	if command -v specify >/dev/null 2>&1; then \
+		echo "✓ specify: installed"; \
+	else \
+		echo "✗ specify: NOT INSTALLED"; \
+		echo "  Install: make harness/spec-kit/install"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	echo ""; \
+	if [ -d "$(SPEC_KIT_SPEC_DIR)" ]; then \
+		echo "✓ Spec-kit initialized in this project"; \
+	else \
+		echo "○ Spec-kit not initialized (run: make harness/spec-kit/init)"; \
+	fi; \
+	echo ""; \
+	if [ $$ERRORS -gt 0 ]; then \
+		echo "Missing $$ERRORS required tool(s)"; \
+		exit 1; \
+	else \
+		echo "All spec-kit tools available!"; \
+	fi
+
+.PHONY: harness/spec-kit/install
+## Install specify CLI via uv
+harness/spec-kit/install: harness/spec-kit/install-uv
+	@echo "Installing Specify CLI..."
+	@echo ""
+	@if command -v specify >/dev/null 2>&1; then \
+		echo "Specify CLI already installed. Upgrading..."; \
+		uv tool install specify-cli --force --from git+$(SPEC_KIT_REPO); \
+	else \
+		echo "Installing Specify CLI from $(SPEC_KIT_REPO)..."; \
+		uv tool install specify-cli --from git+$(SPEC_KIT_REPO); \
+	fi
+	@echo ""
+	@echo "Specify CLI installed successfully!"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Initialize spec-kit in your project:"
+	@echo "     make harness/spec-kit/init"
+
+.PHONY: harness/spec-kit/install-uv
+## Install uv package manager if not present
+harness/spec-kit/install-uv:
+	@if command -v uv >/dev/null 2>&1; then \
+		echo "✓ uv already installed"; \
+	else \
+		echo "Installing uv..."; \
+		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		echo ""; \
+		echo "NOTE: You may need to restart your shell or run:"; \
+		echo "  source $$HOME/.local/bin/env"; \
+	fi
+
+.PHONY: harness/spec-kit/init
+## Initialize spec-kit in the current project
+harness/spec-kit/init:
+	@if ! command -v specify >/dev/null 2>&1; then \
+		echo "Error: specify CLI not installed. Run 'make harness/spec-kit/install' first."; \
+		exit 1; \
+	fi
+	@echo "Initializing Spec-Kit..."
+	@echo ""
+	@specify init . --ai $(SPEC_KIT_AI)
+	@echo ""
+	@mkdir -p $(SPEC_KIT_SPEC_DIR)
+	@echo "Spec-Kit initialized!"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Set up project principles:"
+	@echo "     make harness/spec-kit/constitution"
+	@echo "  2. Create your first spec:"
+	@echo "     make harness/spec-kit/specify"
+
+.PHONY: harness/spec-kit/constitution
+## Set up project principles and guidelines
+harness/spec-kit/constitution:
+	@if ! command -v specify >/dev/null 2>&1; then \
+		echo "Error: specify CLI not installed."; \
+		exit 1; \
+	fi
+	@echo "Setting up project constitution..."
+	@echo ""
+	@echo "This will create governing principles for your project."
+	@echo "Use the /speckit.constitution command in your AI assistant."
+	@echo ""
+	@echo "Example:"
+	@echo "  /speckit.constitution Create principles focused on code quality,"
+	@echo "  testing standards, and performance requirements"
+
+# ═══════════════════════════════════════════════════════════════
+# JIRA-INTEGRATED WORKFLOW
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/spec-kit/specify
+## Generate spec from Jira story context
+harness/spec-kit/specify: harness/spec-kit/ensure-init
+	@echo "Generating Spec from Jira Context"
+	@echo "=================================="
+	@echo ""
+	@if [ "$(SPEC_KIT_AUTO_JIRA)" = "true" ]; then \
+		echo "Fetching Jira context..."; \
+		$(MAKE) harness/context/jira 2>/dev/null || true; \
+	fi
+	@$(HARNESS_PATH)/modules/harness/scripts/spec-kit-bridge.sh specify
+	@echo ""
+	@echo "Spec generated! Review it in $(SPEC_KIT_SPEC_DIR)/spec.md"
+	@echo ""
+	@echo "Next: make harness/spec-kit/plan"
+
+.PHONY: harness/spec-kit/plan
+## Create implementation plan from spec
+harness/spec-kit/plan: harness/spec-kit/ensure-init
+	@echo "Creating Implementation Plan"
+	@echo "============================="
+	@echo ""
+	@$(HARNESS_PATH)/modules/harness/scripts/spec-kit-bridge.sh plan
+	@echo ""
+	@echo "Plan created! Review it in $(SPEC_KIT_SPEC_DIR)/plan.md"
+	@echo ""
+	@echo "Next: make harness/spec-kit/tasks"
+
+.PHONY: harness/spec-kit/tasks
+## Break down plan into actionable tasks
+harness/spec-kit/tasks: harness/spec-kit/ensure-init
+	@echo "Generating Tasks from Plan"
+	@echo "==========================="
+	@echo ""
+	@$(HARNESS_PATH)/modules/harness/scripts/spec-kit-bridge.sh tasks
+	@echo ""
+	@echo "Tasks generated! Review them in $(SPEC_KIT_SPEC_DIR)/tasks.md"
+	@echo ""
+	@echo "Next: make harness/spec-kit/implement"
+
+.PHONY: harness/spec-kit/implement
+## Execute implementation based on tasks
+harness/spec-kit/implement: harness/spec-kit/ensure-init
+	@echo "Executing Implementation"
+	@echo "========================"
+	@echo ""
+	@$(HARNESS_PATH)/modules/harness/scripts/spec-kit-bridge.sh implement
+	@echo ""
+	@echo "Implementation complete!"
+	@echo ""
+	@echo "Run 'make harness/intent-check' to verify alignment with Jira story."
+
+.PHONY: harness/spec-kit/workflow
+## Run full spec-kit workflow (specify → plan → tasks)
+harness/spec-kit/workflow: harness/spec-kit/ensure-init
+	@echo "Running Full Spec-Kit Workflow"
+	@echo "==============================="
+	@echo ""
+	@echo "This will:"
+	@echo "  1. Fetch Jira context"
+	@echo "  2. Generate spec from story"
+	@echo "  3. Create implementation plan"
+	@echo "  4. Break down into tasks"
+	@echo ""
+	@if [ "$(SPEC_KIT_AUTO_JIRA)" = "true" ]; then \
+		$(MAKE) harness/context/jira 2>/dev/null || true; \
+	fi
+	@$(HARNESS_PATH)/modules/harness/scripts/spec-kit-bridge.sh workflow
+	@echo ""
+	@echo "Workflow complete!"
+	@echo ""
+	@echo "Generated files:"
+	@echo "  - $(SPEC_KIT_SPEC_DIR)/spec.md"
+	@echo "  - $(SPEC_KIT_SPEC_DIR)/plan.md"
+	@echo "  - $(SPEC_KIT_SPEC_DIR)/tasks.md"
+	@echo ""
+	@echo "Next: Review the files, then run 'make harness/spec-kit/implement'"
+
+# ═══════════════════════════════════════════════════════════════
+# STANDALONE WORKFLOW (NO JIRA)
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/spec-kit/specify-manual
+## Create spec interactively (no Jira)
+harness/spec-kit/specify-manual: harness/spec-kit/ensure-init
+	@echo "Manual Spec Creation"
+	@echo "===================="
+	@echo ""
+	@echo "Use the /speckit.specify command in your AI assistant."
+	@echo ""
+	@echo "Example:"
+	@echo "  /speckit.specify Build an application that helps users"
+	@echo "  organize their tasks with drag-and-drop functionality"
+	@echo ""
+	@echo "Focus on WHAT and WHY, not the tech stack."
+
+# ═══════════════════════════════════════════════════════════════
+# UTILITIES
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/spec-kit/ensure-init
+## Ensure spec-kit is initialized (internal target)
+harness/spec-kit/ensure-init:
+	@if ! command -v specify >/dev/null 2>&1; then \
+		echo "Specify CLI not installed. Installing..."; \
+		$(MAKE) harness/spec-kit/install; \
+	fi
+	@if [ ! -d "$(SPEC_KIT_SPEC_DIR)" ]; then \
+		mkdir -p $(SPEC_KIT_SPEC_DIR); \
+	fi
+
+.PHONY: harness/spec-kit/status
+## Show current spec-kit status
+harness/spec-kit/status:
+	@echo "Spec-Kit Status"
+	@echo "==============="
+	@echo ""
+	@echo "Configuration:"
+	@echo "  AI Agent:    $(SPEC_KIT_AI)"
+	@echo "  Spec Dir:    $(SPEC_KIT_SPEC_DIR)"
+	@echo "  Auto Jira:   $(SPEC_KIT_AUTO_JIRA)"
+	@echo ""
+	@echo "Files:"
+	@if [ -f "$(SPEC_KIT_SPEC_DIR)/spec.md" ]; then \
+		echo "  ✓ spec.md exists"; \
+	else \
+		echo "  ○ spec.md not created"; \
+	fi
+	@if [ -f "$(SPEC_KIT_SPEC_DIR)/plan.md" ]; then \
+		echo "  ✓ plan.md exists"; \
+	else \
+		echo "  ○ plan.md not created"; \
+	fi
+	@if [ -f "$(SPEC_KIT_SPEC_DIR)/tasks.md" ]; then \
+		echo "  ✓ tasks.md exists"; \
+	else \
+		echo "  ○ tasks.md not created"; \
+	fi
+	@if [ -f "constitution.md" ]; then \
+		echo "  ✓ constitution.md exists"; \
+	else \
+		echo "  ○ constitution.md not created"; \
+	fi
+
+.PHONY: harness/spec-kit/clean
+## Remove spec-kit generated files
+harness/spec-kit/clean:
+	@echo "Cleaning spec-kit files..."
+	@rm -rf $(SPEC_KIT_SPEC_DIR)
+	@echo "Spec-kit files removed."
+
+.PHONY: harness/spec-kit/view-spec
+## View the current spec
+harness/spec-kit/view-spec:
+	@if [ -f "$(SPEC_KIT_SPEC_DIR)/spec.md" ]; then \
+		cat "$(SPEC_KIT_SPEC_DIR)/spec.md"; \
+	else \
+		echo "No spec found. Run 'make harness/spec-kit/specify' first."; \
+	fi
+
+.PHONY: harness/spec-kit/view-plan
+## View the current plan
+harness/spec-kit/view-plan:
+	@if [ -f "$(SPEC_KIT_SPEC_DIR)/plan.md" ]; then \
+		cat "$(SPEC_KIT_SPEC_DIR)/plan.md"; \
+	else \
+		echo "No plan found. Run 'make harness/spec-kit/plan' first."; \
+	fi
+
+.PHONY: harness/spec-kit/view-tasks
+## View the current tasks
+harness/spec-kit/view-tasks:
+	@if [ -f "$(SPEC_KIT_SPEC_DIR)/tasks.md" ]; then \
+		cat "$(SPEC_KIT_SPEC_DIR)/tasks.md"; \
+	else \
+		echo "No tasks found. Run 'make harness/spec-kit/tasks' first."; \
+	fi
