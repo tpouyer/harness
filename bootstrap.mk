@@ -3,7 +3,10 @@
 # It clones the harness repo locally if not present, then includes it.
 #
 # Usage in your project Makefile:
-#   -include $(shell curl -sSL -o .harness "https://raw.githubusercontent.com/ansible-automation-platform/harness/main/bootstrap.mk"; echo .harness)
+#   -include $(shell \
+#     gh api repos/ansible-automation-platform/harness/contents/bootstrap.mk \
+#       --jq '.content' | base64 -d > .harness 2>/dev/null; \
+#     echo .harness)
 
 # ── Configuration (override before including this file) ──────────────────────
 HARNESS_GITHUB_ORG    ?= ansible-automation-platform

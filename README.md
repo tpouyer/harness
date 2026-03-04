@@ -20,12 +20,18 @@ Harness assembles context from your Jira story (including the full Epic → Feat
 Add this to the top of your project's `Makefile`:
 
 ```makefile
--include $(shell curl -sSL -o .harness \
-  "https://raw.githubusercontent.com/ansible-automation-platform/harness/main/bootstrap.mk"; \
+-include $(shell \
+  gh api repos/ansible-automation-platform/harness/contents/bootstrap.mk \
+    --jq '.content' | base64 -d > .harness 2>/dev/null; \
   echo .harness)
 ```
 
-On first run, this downloads `bootstrap.mk` into `.harness` and clones the full framework into `.harness-framework/`. Both are gitignored. Subsequent runs pull updates in the background without blocking your build.
+This requires the `gh` CLI (GitHub's official CLI tool) which handles enterprise SSO authentication automatically. On first run, this downloads `bootstrap.mk` into `.harness` and clones the full framework into `.harness-framework/`. Both are gitignored. Subsequent runs pull updates in the background without blocking your build.
+
+**Installing gh CLI**: If you don't have `gh` installed:
+- macOS: `brew install gh`
+- Linux: See [github.com/cli/cli](https://github.com/cli/cli)
+- Then authenticate: `gh auth login`
 
 Add both to your `.gitignore`:
 
@@ -36,14 +42,22 @@ Add both to your `.gitignore`:
 
 ### Override defaults
 
-Before the `-include` line you can pin a specific fork or branch:
+To use a specific fork or branch, set these variables before the `-include` line:
 
 ```makefile
-HARNESS_GITHUB_ORG    ?= ansible-automation-platform
-HARNESS_GITHUB_REPO   ?= harness
-HARNESS_BRANCH        ?= main
+# Customize these for your enterprise org/fork
+HARNESS_GITHUB_ORG    ?= your-enterprise-org
+HARNESS_GITHUB_REPO   ?= harness-fork
+HARNESS_BRANCH        ?= develop
 HARNESS_FRAMEWORK_DIR ?= .harness-framework
+
+-include $(shell \
+  gh api repos/$(HARNESS_GITHUB_ORG)/$(HARNESS_GITHUB_REPO)/contents/bootstrap.mk \
+    --jq '.content' | base64 -d > .harness 2>/dev/null; \
+  echo .harness)
 ```
+
+**Note**: The bootstrap download uses the repository's default branch. The `HARNESS_BRANCH` variable controls which branch is cloned into `.harness-framework/`.
 
 ### Local development (no network)
 
