@@ -71,8 +71,16 @@ harness/deps/paude:
 		echo "Installing with pipx..."; \
 		pipx install paude || pipx upgrade paude; \
 	elif [ -n "$(HAS_PIP)" ]; then \
-		echo "Installing with pip..."; \
-		$(PIP) install --user paude || $(PIP) install paude; \
+		echo "pipx not found. Installing pipx first..."; \
+		if [ "$(UNAME_S)" = "Darwin" ] && [ -n "$(HAS_BREW)" ]; then \
+			brew install pipx; \
+			pipx ensurepath; \
+		else \
+			$(PYTHON) -m pip install --user pipx; \
+			$(PYTHON) -m pipx ensurepath; \
+		fi; \
+		echo "Installing paude with pipx..."; \
+		pipx install paude; \
 	else \
 		echo "Error: pip not found. Install Python first."; \
 		exit 1; \
