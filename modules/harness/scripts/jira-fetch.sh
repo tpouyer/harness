@@ -6,6 +6,137 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CACHE_DIR="${HARNESS_CACHE_DIR:-.harness/.cache}"
 CACHE_TTL="${HARNESS_CACHE_TTL:-1800}"
+HANDBOOK_REPO="https://github.com/ansible/handbook"
+
+# Function to fetch a Jira issue by key
+fetch_issue() {
+    local ISSUE_KEY="$1"
+    curl -s -u "$AUTH" \
+        -H "Content-Type: application/json" \
+        "${BASE_URL}/rest/api/3/issue/${ISSUE_KEY}?expand=renderedFields" 2>/dev/null || echo "{}"
+}
+
+# Function to extract web links from an issue that match the handbook repo
+extract_handbook_links() {
+    local ISSUE_KEY="$1"
+    local LINKS_RESPONSE
+
+    # Fetch remote links (web links) for the issue
+    LINKS_RESPONSE=$(curl -s -u "$AUTH" \
+        -H "Content-Type: application/json" \
+        "${BASE_URL}/rest/api/3/issue/${ISSUE_KEY}/remotelink" 2>/dev/null || echo "[]")
+
+    # Filter for handbook links and extract relevant info
+    echo "$LINKS_RESPONSE" | jq --arg repo "$HANDBOOK_REPO" '[
+        .[] | select(.object.url | startswith($repo)) | {
+            title: .object.title,
+            url: .object.url,
+            summary: .object.summary,
+            source_issue: "'"$ISSUE_KEY"'"
+        }
+    ]' 2>/dev/null || echo "[]"
+}
+
+# Function to get parent issue key (for Feature/Initiative hierarchy)
+get_parent_key() {
+    local ISSUE_RESPONSE="$1"
+    # Check multiple fields for parent relationship
+    # parent field (for subtasks/stories in epics)
+    # customfield_10014 is common for Epic Link
+    # customfield_10018 is common for Parent Link in Jira Software
+    echo "$ISSUE_RESPONSE" | jq -r '
+        .fields.parent.key //
+        .fields.customfield_10018.key //
+        .fields.customfield_10014 //
+        ""
+    ' 2>/dev/null | head -1
+}
+
+# Function to determine issue hierarchy type
+get_hierarchy_type() {
+    local ISSUE_RESPONSE="$1"
+    local TYPE
+    TYPE=$(echo "$ISSUE_RESPONSE" | jq -r '.fields.issuetype.name // "Unknown"')
+
+    # Normalize common types
+    case "$TYPE" in
+        "Epic"|"epic") echo "epic" ;;
+        "Feature"|"feature") echo "feature" ;;
+        "Initiative"|"initiative") echo "initiative" ;;
+        "Story"|"story"|"Task"|"task"|"Bug"|"bug"|"Sub-task"|"sub-task") echo "issue" ;;
+        *) echo "$TYPE" | tr '[:upper:]' '[:lower:]' ;;
+    esac
+}
+
+# Function to fetch GitHub raw content for handbook documents
+fetch_handbook_content() {
+    local URL="$1"
+    local RAW_URL
+    local CONTENT
+
+    # Convert GitHub URL to raw URL
+    # https://github.com/ansible/handbook/blob/main/path/to/file.md
+    # becomes https://raw.githubusercontent.com/ansible/handbook/main/path/to/file.md
+    RAW_URL=$(echo "$URL" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/|/|')
+
+    # Fetch content (limit to first 10000 chars to avoid huge docs)
+    CONTENT=$(curl -s -L "$RAW_URL" 2>/dev/null | head -c 10000 || echo "")
+
+    if [ -n "$CONTENT" ]; then
+        echo "$CONTENT"
+    else
+        echo "[Could not fetch content from $URL]"
+    fi
+}
+
+# Function to traverse and build full hierarchy
+build_hierarchy() {
+    local CURRENT_KEY="$1"
+    local MAX_DEPTH=5
+    local DEPTH=0
+    local HIERARCHY="[]"
+    local ALL_HANDBOOK_LINKS="[]"
+
+    while [ -n "$CURRENT_KEY" ] && [ "$CURRENT_KEY" != "null" ] && [ $DEPTH -lt $MAX_DEPTH ]; do
+        echo "  Fetching hierarchy level $DEPTH: $CURRENT_KEY" >&2
+
+        local RESPONSE
+        RESPONSE=$(fetch_issue "$CURRENT_KEY")
+
+        if echo "$RESPONSE" | jq -e '.errorMessages' > /dev/null 2>&1; then
+            break
+        fi
+
+        local SUMMARY TYPE STATUS DESCRIPTION
+        SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary // ""')
+        TYPE=$(get_hierarchy_type "$RESPONSE")
+        STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
+        DESCRIPTION=$(echo "$RESPONSE" | jq -r '.fields.description // ""')
+
+        # Extract handbook links from this level
+        local LEVEL_LINKS
+        LEVEL_LINKS=$(extract_handbook_links "$CURRENT_KEY")
+
+        # Merge into all handbook links
+        ALL_HANDBOOK_LINKS=$(echo "$ALL_HANDBOOK_LINKS" "$LEVEL_LINKS" | jq -s 'add')
+
+        # Add to hierarchy
+        HIERARCHY=$(echo "$HIERARCHY" | jq --arg key "$CURRENT_KEY" \
+            --arg summary "$SUMMARY" \
+            --arg type "$TYPE" \
+            --arg status "$STATUS" \
+            --arg desc "$DESCRIPTION" \
+            '. + [{key: $key, type: $type, summary: $summary, status: $status, description: $desc}]')
+
+        # Get parent for next iteration
+        CURRENT_KEY=$(get_parent_key "$RESPONSE")
+        DEPTH=$((DEPTH + 1))
+    done
+
+    # Return both hierarchy and links as JSON
+    jq -n --argjson hierarchy "$HIERARCHY" --argjson links "$ALL_HANDBOOK_LINKS" \
+        '{hierarchy: $hierarchy, handbook_links: $links}'
+}
 
 # Detect issue
 ISSUE=$("$SCRIPT_DIR/detect-issue.sh" || echo "")
@@ -51,6 +182,11 @@ if [ -z "$HARNESS_JIRA_EMAIL" ] || [ -z "$HARNESS_JIRA_API_TOKEN" ]; then
     "custom_fields": {}
   },
   "epic": null,
+  "hierarchy": [],
+  "handbook_documents": {
+    "links": [],
+    "documents": []
+  },
   "linked_issues": [],
   "comments": [],
   "_meta": {
@@ -126,6 +262,60 @@ if [ -n "$EPIC_KEY" ] && [ "$EPIC_KEY" != "null" ]; then
     fi
 fi
 
+# Build full hierarchy (Epic → Feature → Initiative) and collect handbook links
+FULL_HIERARCHY="[]"
+HANDBOOK_LINKS="[]"
+if [ -n "$EPIC_KEY" ] && [ "$EPIC_KEY" != "null" ]; then
+    echo "Building issue hierarchy..."
+    HIERARCHY_DATA=$(build_hierarchy "$EPIC_KEY")
+    FULL_HIERARCHY=$(echo "$HIERARCHY_DATA" | jq '.hierarchy // []')
+    HANDBOOK_LINKS=$(echo "$HIERARCHY_DATA" | jq '.handbook_links // []')
+fi
+
+# Also get handbook links from the current issue itself
+ISSUE_HANDBOOK_LINKS=$(extract_handbook_links "$ISSUE")
+HANDBOOK_LINKS=$(echo "$HANDBOOK_LINKS" "$ISSUE_HANDBOOK_LINKS" | jq -s 'add | unique_by(.url)')
+
+# Fetch content for handbook documents (SDP/Proposals)
+HANDBOOK_DOCS="[]"
+LINK_COUNT=$(echo "$HANDBOOK_LINKS" | jq 'length' 2>/dev/null || echo "0")
+LINK_COUNT=${LINK_COUNT:-0}
+if [ "$LINK_COUNT" -gt 0 ]; then
+    echo "Found $LINK_COUNT handbook link(s), fetching content..."
+
+    # Calculate max index (limit to 5)
+    MAX_INDEX=$((LINK_COUNT > 5 ? 4 : LINK_COUNT - 1))
+
+    # Process each link
+    for i in $(seq 0 "$MAX_INDEX"); do
+        LINK_URL=$(echo "$HANDBOOK_LINKS" | jq -r ".[$i].url")
+        LINK_TITLE=$(echo "$HANDBOOK_LINKS" | jq -r ".[$i].title // \"Document\"")
+        SOURCE_ISSUE=$(echo "$HANDBOOK_LINKS" | jq -r ".[$i].source_issue")
+
+        echo "  Fetching: $LINK_TITLE"
+        CONTENT=$(fetch_handbook_content "$LINK_URL")
+
+        # Determine document type from path
+        DOC_TYPE="unknown"
+        if echo "$LINK_URL" | grep -qi "sdp"; then
+            DOC_TYPE="sdp"
+        elif echo "$LINK_URL" | grep -qi "proposal"; then
+            DOC_TYPE="proposal"
+        elif echo "$LINK_URL" | grep -qi "rfc"; then
+            DOC_TYPE="rfc"
+        elif echo "$LINK_URL" | grep -qi "adr"; then
+            DOC_TYPE="adr"
+        fi
+
+        HANDBOOK_DOCS=$(echo "$HANDBOOK_DOCS" | jq --arg url "$LINK_URL" \
+            --arg title "$LINK_TITLE" \
+            --arg type "$DOC_TYPE" \
+            --arg source "$SOURCE_ISSUE" \
+            --arg content "$CONTENT" \
+            '. + [{url: $url, title: $title, type: $type, source_issue: $source, content: $content}]')
+    done
+fi
+
 # Fetch linked issues
 LINKS=$(echo "$ISSUE_RESPONSE" | jq '[.fields.issuelinks // [] | .[] | {
     type: .type.name,
@@ -144,6 +334,9 @@ jq -n \
     --arg ac "$AC" \
     --argjson labels "$LABELS" \
     --argjson epic "$EPIC_DATA" \
+    --argjson hierarchy "$FULL_HIERARCHY" \
+    --argjson handbook_links "$HANDBOOK_LINKS" \
+    --argjson handbook_docs "$HANDBOOK_DOCS" \
     --argjson links "$LINKS" \
     --argjson comments "$COMMENTS" \
     '{
@@ -158,6 +351,11 @@ jq -n \
             custom_fields: {}
         },
         epic: $epic,
+        hierarchy: $hierarchy,
+        handbook_documents: {
+            links: $handbook_links,
+            documents: $handbook_docs
+        },
         linked_issues: $links,
         comments: $comments,
         _meta: {

@@ -31,6 +31,18 @@ extract_jira_context() {
         ACCEPTANCE_CRITERIA=$(jq -r '.issue.acceptance_criteria | join("\n")' "$JIRA_CONTEXT" 2>/dev/null || echo "")
         EPIC_SUMMARY=$(jq -r '.epic.summary // ""' "$JIRA_CONTEXT")
         EPIC_DESCRIPTION=$(jq -r '.epic.description // ""' "$JIRA_CONTEXT")
+
+        # Extract hierarchy (Feature/Initiative)
+        FEATURE_SUMMARY=$(jq -r '.hierarchy[] | select(.type == "feature") | .summary // ""' "$JIRA_CONTEXT" 2>/dev/null | head -1)
+        INITIATIVE_SUMMARY=$(jq -r '.hierarchy[] | select(.type == "initiative") | .summary // ""' "$JIRA_CONTEXT" 2>/dev/null | head -1)
+
+        # Extract handbook documents (SDP/Proposals)
+        HANDBOOK_DOC_COUNT=$(jq -r '.handbook_documents.documents | length // 0' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+        if [ "$HANDBOOK_DOC_COUNT" -gt 0 ]; then
+            HANDBOOK_DOCS=$(jq -r '.handbook_documents.documents[] | "### \(.title // "Document")\n**Type:** \(.type)\n**Source:** \(.source_issue)\n**URL:** \(.url)\n\n\(.content)\n"' "$JIRA_CONTEXT" 2>/dev/null || echo "")
+        else
+            HANDBOOK_DOCS=""
+        fi
         return 0
     else
         echo "Warning: No Jira context found for $ISSUE" >&2
@@ -73,11 +85,19 @@ generate_spec() {
 
 ${ISSUE_DESCRIPTION:-No description provided. Please add context about what problem this solves.}
 
-## Epic Context
+## Strategic Context
 
+${INITIATIVE_SUMMARY:+**Initiative:** $INITIATIVE_SUMMARY}
+${FEATURE_SUMMARY:+**Feature:** $FEATURE_SUMMARY}
 ${EPIC_SUMMARY:+**Epic:** $EPIC_SUMMARY}
 
 ${EPIC_DESCRIPTION:-No epic context available.}
+
+$(if [ -n "$HANDBOOK_DOCS" ]; then
+echo "## Related Documents (SDP/Proposals)"
+echo ""
+echo "$HANDBOOK_DOCS"
+fi)
 
 ## Acceptance Criteria
 

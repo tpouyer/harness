@@ -32,6 +32,22 @@ case "$ACTION" in
             echo "  Acceptance Criteria: $AC_COUNT item(s)"
             COMMENT_COUNT=$(jq '.comments | length' "$JIRA_CONTEXT")
             echo "  Comments: $COMMENT_COUNT"
+
+            # Show hierarchy
+            HIERARCHY_COUNT=$(jq '.hierarchy | length // 0' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+            if [ "$HIERARCHY_COUNT" -gt 0 ]; then
+                echo ""
+                echo "  Strategic Hierarchy:"
+                jq -r '.hierarchy[] | "    \(.type | ascii_upcase): \(.key) - \(.summary)"' "$JIRA_CONTEXT" 2>/dev/null || true
+            fi
+
+            # Show handbook documents
+            DOC_COUNT=$(jq '.handbook_documents.documents | length // 0' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+            if [ "$DOC_COUNT" -gt 0 ]; then
+                echo ""
+                echo "  Handbook Documents: $DOC_COUNT found"
+                jq -r '.handbook_documents.documents[] | "    [\(.type)] \(.title) (from \(.source_issue))"' "$JIRA_CONTEXT" 2>/dev/null || true
+            fi
         else
             echo "Jira Context: Not available"
         fi

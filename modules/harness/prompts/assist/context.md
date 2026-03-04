@@ -12,6 +12,12 @@ ${ACCEPTANCE_CRITERIA}
 
 ${EPIC_CONTEXT}
 
+### Strategic Hierarchy
+${HIERARCHY_CONTEXT}
+
+### Related Documents (SDP/Proposals)
+${HANDBOOK_DOCUMENTS}
+
 ---
 
 ### Code Changes
