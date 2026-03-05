@@ -30,22 +30,23 @@ GCP_REGION="${GCP_REGION:-us-east5}"
 GCP_QUOTA_PROJECT="${GCP_QUOTA_PROJECT:-$GCP_PROJECT_ID}"
 
 # ── Google Cloud authentication ─────────────────────────────────────────────
-# If a service account key is mounted, use it. Otherwise expect ADC to be
-# passed in via a bind-mounted ~/.config/gcloud/ directory.
+# The init script (init-claude.sh) copies the mounted ADC file into
+# ~/.config/gcloud/ as root before dropping to this user. We just need to
+# configure gcloud to use it.
+GCLOUD_DIR="/home/harness/.config/gcloud"
+
 if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ] && [ -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
     echo "Authenticating with service account key..."
     gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet
     gcloud config set project "$GCP_PROJECT_ID" --quiet
-elif [ -f "/home/harness/.config/gcloud/application_default_credentials.json" ]; then
-    echo "Using mounted Application Default Credentials."
+elif [ -f "$GCLOUD_DIR/application_default_credentials.json" ]; then
+    echo "Using Application Default Credentials."
     gcloud config set project "$GCP_PROJECT_ID" --quiet
+    gcloud auth application-default set-quota-project "$GCP_QUOTA_PROJECT" --quiet 2>/dev/null || true
 else
-    echo "Warning: No credentials found. Attempting to use existing ADC." >&2
-    echo "  Mount your ADC directory: -v ~/.config/gcloud:/home/harness/.config/gcloud:ro" >&2
+    echo "Warning: No credentials found." >&2
+    echo "  Mount your ADC file: -v ~/.config/gcloud/application_default_credentials.json:/tmp/adc.json:z" >&2
 fi
-
-# Set the quota project for ADC
-gcloud auth application-default set-quota-project "$GCP_QUOTA_PROJECT" 2>/dev/null || true
 
 # ── Export Vertex AI environment for Claude Code and Anthropic SDK ───────────
 export CLAUDE_CODE_USE_VERTEX=1

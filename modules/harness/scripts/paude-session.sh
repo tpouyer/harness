@@ -33,7 +33,7 @@ case "$ACTION" in
         if [ "$PROVIDER" = "claude" ] && [ -n "$GCP_PROJECT_ID" ]; then
             ADC_DIR="$HOME/.config/gcloud"
             if [ -d "$ADC_DIR" ]; then
-                GCP_FLAGS="--mount $ADC_DIR:/home/harness/.config/gcloud:ro"
+                GCP_FLAGS="--mount $ADC_DIR/application_default_credentials.json:/tmp/adc.json:z"
             fi
             GCP_FLAGS="$GCP_FLAGS --env GCP_PROJECT_ID=$GCP_PROJECT_ID"
             GCP_FLAGS="$GCP_FLAGS --env GCP_REGION=${GCP_REGION:-us-east5}"

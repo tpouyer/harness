@@ -186,9 +186,19 @@ publish-local: build-local push-local ## Build and push local provider image
 # Test targets
 # ══════════════════════════════════════════════════════════════════════════════
 
-test-images: ## Test all built images (smoke tests)
+test-images: ## Test all built images (smoke tests — pass GCP_PROJECT_ID for claude)
 	@echo "Testing harness-claude..."
-	@$(CONTAINER_RUNTIME) run --rm $(IMAGE_PREFIX)-claude:$(VERSION) --version || echo "  (no --version flag)"
+	@$(CONTAINER_RUNTIME) run --rm \
+		-e GCP_PROJECT_ID=$(GCP_PROJECT_ID) \
+		-e GCP_REGION=$(or $(GCP_REGION),us-east5) \
+		-e GCP_QUOTA_PROJECT=$(or $(GCP_QUOTA_PROJECT),$(GCP_PROJECT_ID)) \
+		-v $(HOME)/.config/gcloud/application_default_credentials.json:/tmp/adc.json:z \
+		--entrypoint /bin/bash \
+		$(IMAGE_PREFIX)-claude:$(VERSION) \
+		-c 'cp /tmp/adc.json /home/harness/.config/gcloud/application_default_credentials.json 2>/dev/null && \
+		    gcloud config set project $$GCP_PROJECT_ID --quiet 2>/dev/null && \
+		    python3 -c "from anthropic import AnthropicVertex; print(\"  anthropic[vertex]: OK\")" && \
+		    echo "  gcloud auth: OK"'
 	@echo "Testing harness-openai..."
 	@$(CONTAINER_RUNTIME) run --rm $(IMAGE_PREFIX)-openai:$(VERSION) --version || echo "  (no --version flag)"
 	@echo "Testing harness-vertex..."

@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     gnupg \
     apt-transport-https \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Cloud SDK
@@ -45,15 +46,17 @@ RUN curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh \
 
 # Create non-root user
 RUN useradd -m -s /bin/bash harness
-USER harness
+
 WORKDIR /workspace
 
 # Create workspace and config directories
-RUN mkdir -p /workspace/.harness /home/harness/.config/gcloud
+RUN mkdir -p /workspace/.harness /home/harness/.config/gcloud \
+    && chown -R harness:harness /workspace /home/harness
 
-# Default entrypoint for agent execution
-COPY --chown=harness:harness entrypoint-claude.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# Copy entrypoints (init runs as root, entrypoint runs as harness)
+COPY init-claude.sh /usr/local/bin/init.sh
+COPY entrypoint-claude.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/init.sh /usr/local/bin/entrypoint.sh
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/init.sh"]
 CMD ["assist"]
