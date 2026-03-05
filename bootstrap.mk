@@ -5,8 +5,8 @@
 # Usage in your project Makefile:
 #   -include $(shell \
 #     gh api repos/ansible-automation-platform/harness/contents/bootstrap.mk \
-#       --jq '.content' | base64 -d > .harness 2>/dev/null; \
-#     echo .harness)
+#       --jq '.content' | base64 -d > .harness.mk 2>/dev/null; \
+#     echo .harness.mk)
 
 # ── Configuration (override before including this file) ──────────────────────
 HARNESS_GITHUB_ORG    ?= ansible-automation-platform
