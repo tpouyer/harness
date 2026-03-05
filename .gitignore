@@ -1,0 +1,4 @@
+# Local credentials (never commit)
+.harness.local.env
+.test.harness.local.env
+.harness/.cache/

@@ -1,0 +1,472 @@
+# Harness Self-Tests
+# Run: make -f Makefile.test [target]
+# Run all: make -f Makefile.test test
+
+SHELL := /bin/bash
+export HARNESS_PATH := $(shell pwd)
+
+# Load user-local credentials for integration tests (optional, not committed)
+-include $(HARNESS_PATH)/.test.harness.local.env
+
+# Export loaded variables so scripts can see them as env vars
+export HARNESS_JIRA_BASE_URL
+export HARNESS_JIRA_API_TOKEN
+export HARNESS_JIRA_AUTH_TYPE
+export HARNESS_JIRA_EMAIL
+export HARNESS_ISSUE
+export GITHUB_TOKEN
+
+SCRIPTS := $(HARNESS_PATH)/modules/harness/scripts
+TEST_DIR := $(shell mktemp -d)
+MOCK_BIN := $(TEST_DIR)/mock-bin
+RESULTS_DIR := $(TEST_DIR)/results
+HELPERS := $(TEST_DIR)/helpers
+
+# Colors
+PASS := \033[32mPASS\033[0m
+FAIL := \033[31mFAIL\033[0m
+INFO := \033[36mINFO\033[0m
+
+# Counter helpers (inline shell, no @ prefix)
+RECORD_PASS = PASS_COUNT=$$(cat $(RESULTS_DIR)/pass); echo $$((PASS_COUNT + 1)) > $(RESULTS_DIR)/pass
+RECORD_FAIL = FAIL_COUNT=$$(cat $(RESULTS_DIR)/fail); echo $$((FAIL_COUNT + 1)) > $(RESULTS_DIR)/fail
+
+.PHONY: test test/jira test/jira/detect-issue test/jira/auth-setup test/jira/placeholder \
+        test/jira/cache test/jira/api-version test/jira/fetch-integration test/jira/fetch-inspect \
+        test/setup test/summary
+
+## Run all tests
+test: test/setup test/jira test/summary
+
+## Run all Jira fetch tests
+test/jira: test/jira/detect-issue test/jira/auth-setup test/jira/placeholder test/jira/cache test/jira/api-version test/jira/fetch-integration
+
+test/setup:
+	@mkdir -p $(MOCK_BIN) $(RESULTS_DIR) $(HELPERS)
+	@echo "0" > $(RESULTS_DIR)/pass
+	@echo "0" > $(RESULTS_DIR)/fail
+	@# Extract only function definitions from jira-fetch.sh (skip mainline code)
+	@sed -n '/^[a-z_]*() *{/,/^}/p' $(SCRIPTS)/jira-fetch.sh > $(HELPERS)/jira-functions.sh
+	@echo ""
+	@echo "========================================"
+	@echo " Harness Self-Tests"
+	@echo "========================================"
+	@echo ""
+
+test/summary:
+	@PASS_COUNT=$$(cat $(RESULTS_DIR)/pass); \
+	FAIL_COUNT=$$(cat $(RESULTS_DIR)/fail); \
+	TOTAL=$$((PASS_COUNT + FAIL_COUNT)); \
+	echo ""; \
+	echo "========================================"; \
+	echo " Results: $$PASS_COUNT/$$TOTAL passed"; \
+	if [ "$$FAIL_COUNT" -gt 0 ]; then \
+		echo -e " $(FAIL) $$FAIL_COUNT test(s) failed"; \
+		echo "========================================"; \
+		rm -rf $(TEST_DIR); \
+		exit 1; \
+	else \
+		echo -e " $(PASS) All tests passed"; \
+		echo "========================================"; \
+		rm -rf $(TEST_DIR); \
+	fi
+
+# ════════════════════════════════════════════════════════════════
+# detect-issue.sh tests
+# ════════════════════════════════════════════════════════════════
+
+## Test issue detection from HARNESS_ISSUE env var, branch names, and edge cases
+test/jira/detect-issue: test/setup
+	@echo "--- detect-issue.sh ---"
+	@# Test 1: Explicit HARNESS_ISSUE override
+	@RESULT=$$(HARNESS_ISSUE=AAP-1234 $(SCRIPTS)/detect-issue.sh 2>/dev/null); \
+	if [ "$$RESULT" = "AAP-1234" ]; then \
+		echo -e "  $(PASS) explicit HARNESS_ISSUE override"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) explicit HARNESS_ISSUE override (got '$$RESULT', expected 'AAP-1234')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 2: Multi-word project key
+	@RESULT=$$(HARNESS_ISSUE=MYPROJ-999 $(SCRIPTS)/detect-issue.sh 2>/dev/null); \
+	if [ "$$RESULT" = "MYPROJ-999" ]; then \
+		echo -e "  $(PASS) multi-word project key (MYPROJ-999)"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) multi-word project key (got '$$RESULT', expected 'MYPROJ-999')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 3: Detection from git branch name
+	@TMPGIT=$$(mktemp -d); \
+	cd "$$TMPGIT" && git init -q && git checkout -q -b feature/PROJ-5678 && \
+	git commit -q --allow-empty -m "init" && \
+	RESULT=$$(unset HARNESS_ISSUE; cd "$$TMPGIT" && $(SCRIPTS)/detect-issue.sh 2>/dev/null); \
+	if [ "$$RESULT" = "PROJ-5678" ]; then \
+		echo -e "  $(PASS) detect from branch name (feature/PROJ-5678)"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) detect from branch name (got '$$RESULT', expected 'PROJ-5678')"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPGIT"
+	@# Test 4: Detection from branch with suffix (bugfix/ABC-42-fix-login)
+	@TMPGIT=$$(mktemp -d); \
+	cd "$$TMPGIT" && git init -q && git checkout -q -b bugfix/ABC-42-fix-login && \
+	git commit -q --allow-empty -m "init" && \
+	RESULT=$$(unset HARNESS_ISSUE; cd "$$TMPGIT" && $(SCRIPTS)/detect-issue.sh 2>/dev/null); \
+	if [ "$$RESULT" = "ABC-42" ]; then \
+		echo -e "  $(PASS) detect from branch with suffix (bugfix/ABC-42-fix-login)"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) detect from branch with suffix (got '$$RESULT', expected 'ABC-42')"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPGIT"
+	@# Test 5: No issue found returns error
+	@TMPGIT=$$(mktemp -d); \
+	cd "$$TMPGIT" && git init -q && git checkout -q -b main && \
+	git commit -q --allow-empty -m "init" && \
+	(unset HARNESS_ISSUE; cd "$$TMPGIT" && $(SCRIPTS)/detect-issue.sh > /dev/null 2>&1); \
+	EXIT_CODE=$$?; \
+	if [ "$$EXIT_CODE" -ne 0 ]; then \
+		echo -e "  $(PASS) no issue found returns non-zero exit"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) no issue found should return non-zero (got exit $$EXIT_CODE)"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPGIT"
+	@# Test 6: Detection from recent commit message
+	@TMPGIT=$$(mktemp -d); \
+	cd "$$TMPGIT" && git init -q && git checkout -q -b main && \
+	git commit -q --allow-empty -m "AAP-100 initial work" && \
+	RESULT=$$(unset HARNESS_ISSUE; cd "$$TMPGIT" && $(SCRIPTS)/detect-issue.sh 2>/dev/null); \
+	if [ "$$RESULT" = "AAP-100" ]; then \
+		echo -e "  $(PASS) detect from commit message (AAP-100)"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) detect from commit message (got '$$RESULT', expected 'AAP-100')"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPGIT"
+
+# ════════════════════════════════════════════════════════════════
+# Auth setup tests
+# ════════════════════════════════════════════════════════════════
+
+## Test bearer vs basic auth selection logic
+test/jira/auth-setup: test/setup
+	@echo "--- jira-fetch.sh auth setup ---"
+	@# Test 1: Bearer auth when no email is set (auto mode)
+	@RESULT=$$(HARNESS_JIRA_AUTH_TYPE=auto HARNESS_JIRA_EMAIL="" HARNESS_JIRA_API_TOKEN=test-token \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; echo "$${CURL_AUTH[@]}"' 2>/dev/null); \
+	if echo "$$RESULT" | grep -q "Bearer test-token"; then \
+		echo -e "  $(PASS) auto mode selects bearer when email is empty"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) auto mode should select bearer when email is empty (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 2: Bearer auth when explicitly set
+	@RESULT=$$(HARNESS_JIRA_AUTH_TYPE=bearer HARNESS_JIRA_EMAIL=user@test.com HARNESS_JIRA_API_TOKEN=my-pat \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; echo "$${CURL_AUTH[@]}"' 2>/dev/null); \
+	if echo "$$RESULT" | grep -q "Bearer my-pat"; then \
+		echo -e "  $(PASS) explicit bearer auth overrides email presence"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) explicit bearer should override email (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 3: Basic auth when email is set and type is auto
+	@RESULT=$$(HARNESS_JIRA_AUTH_TYPE=auto HARNESS_JIRA_EMAIL=user@test.com HARNESS_JIRA_API_TOKEN=api-token \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; echo "$${CURL_AUTH[@]}"' 2>/dev/null); \
+	if echo "$$RESULT" | grep -q "\-u user@test.com:api-token"; then \
+		echo -e "  $(PASS) auto mode selects basic auth when email is set"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) auto mode should select basic auth when email is set (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 4: Token with surrounding quotes is stripped
+	@RESULT=$$(HARNESS_JIRA_AUTH_TYPE=bearer HARNESS_JIRA_EMAIL="" HARNESS_JIRA_API_TOKEN='"quoted-token"' \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; echo "$${CURL_AUTH[@]}"' 2>/dev/null); \
+	if echo "$$RESULT" | grep -q "Bearer quoted-token"; then \
+		echo -e "  $(PASS) strips surrounding quotes from token"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) should strip quotes from token (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+
+# ════════════════════════════════════════════════════════════════
+# Placeholder context tests
+# ════════════════════════════════════════════════════════════════
+
+## Test placeholder context is created when no Jira token is configured
+test/jira/placeholder: test/setup
+	@echo "--- jira-fetch.sh placeholder context ---"
+	@# Test 1: Placeholder JSON created when HARNESS_JIRA_API_TOKEN is empty
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_ISSUE=TEST-1 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		$(SCRIPTS)/jira-fetch.sh > /dev/null 2>&1; \
+	if [ -f "$$TMPDIR/jira-context-TEST-1.json" ]; then \
+		echo -e "  $(PASS) placeholder context file created"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) placeholder context file not created"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPDIR"
+	@# Test 2: Placeholder has correct issue key
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_ISSUE=PROJ-42 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		$(SCRIPTS)/jira-fetch.sh > /dev/null 2>&1; \
+	KEY=$$(jq -r '.issue.key' "$$TMPDIR/jira-context-PROJ-42.json" 2>/dev/null); \
+	if [ "$$KEY" = "PROJ-42" ]; then \
+		echo -e "  $(PASS) placeholder contains correct issue key"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) placeholder issue key mismatch (got '$$KEY', expected 'PROJ-42')"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPDIR"
+	@# Test 3: Placeholder is marked as placeholder
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_ISSUE=PROJ-42 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		$(SCRIPTS)/jira-fetch.sh > /dev/null 2>&1; \
+	IS_PLACEHOLDER=$$(jq -r '._meta.placeholder' "$$TMPDIR/jira-context-PROJ-42.json" 2>/dev/null); \
+	if [ "$$IS_PLACEHOLDER" = "true" ]; then \
+		echo -e "  $(PASS) placeholder meta flag is set"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) placeholder meta flag should be true (got '$$IS_PLACEHOLDER')"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPDIR"
+	@# Test 4: Placeholder has expected structure (all top-level keys)
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_ISSUE=PROJ-42 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		$(SCRIPTS)/jira-fetch.sh > /dev/null 2>&1; \
+	KEYS=$$(jq -r 'keys | sort | join(",")' "$$TMPDIR/jira-context-PROJ-42.json" 2>/dev/null); \
+	EXPECTED="_meta,comments,epic,handbook_documents,hierarchy,issue,linked_issues"; \
+	if [ "$$KEYS" = "$$EXPECTED" ]; then \
+		echo -e "  $(PASS) placeholder has expected JSON structure"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) placeholder structure mismatch (got '$$KEYS', expected '$$EXPECTED')"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPDIR"
+
+# ════════════════════════════════════════════════════════════════
+# Cache behavior tests
+# ════════════════════════════════════════════════════════════════
+
+## Test cache hit/miss and TTL behavior
+test/jira/cache: test/setup
+	@echo "--- jira-fetch.sh cache ---"
+	@# Test 1: Fresh cache is reused (cache hit)
+	@# Seed cache and manually write the cache key file (placeholder path doesn't write one)
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_ISSUE=CACHE-1 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		HARNESS_JIRA_BASE_URL=https://example.com HARNESS_JIRA_PROJECT=TST \
+		$(SCRIPTS)/jira-fetch.sh > /dev/null 2>&1; \
+	CONFIG_HASH=$$(echo "https://example.comTST" | md5sum 2>/dev/null | cut -c1-8 || echo "nocache"); \
+	echo "$$CONFIG_HASH" > "$$TMPDIR/.jira-cache-key-CACHE-1"; \
+	OUTPUT=$$(HARNESS_ISSUE=CACHE-1 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" HARNESS_NO_CACHE=false \
+		HARNESS_JIRA_BASE_URL=https://example.com HARNESS_JIRA_PROJECT=TST \
+		$(SCRIPTS)/jira-fetch.sh 2>&1); \
+	if echo "$$OUTPUT" | grep -q "Using cached"; then \
+		echo -e "  $(PASS) fresh cache produces cache hit"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) fresh cache should produce hit (got '$$OUTPUT')"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPDIR"
+	@# Test 2: HARNESS_NO_CACHE=true bypasses cache
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_ISSUE=CACHE-2 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		HARNESS_JIRA_BASE_URL=https://example.com HARNESS_JIRA_PROJECT=TST \
+		$(SCRIPTS)/jira-fetch.sh > /dev/null 2>&1; \
+	CONFIG_HASH=$$(echo "https://example.comTST" | md5sum 2>/dev/null | cut -c1-8 || echo "nocache"); \
+	echo "$$CONFIG_HASH" > "$$TMPDIR/.jira-cache-key-CACHE-2"; \
+	OUTPUT=$$(HARNESS_ISSUE=CACHE-2 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" HARNESS_NO_CACHE=true \
+		HARNESS_JIRA_BASE_URL=https://example.com HARNESS_JIRA_PROJECT=TST \
+		$(SCRIPTS)/jira-fetch.sh 2>&1); \
+	if ! echo "$$OUTPUT" | grep -q "Using cached"; then \
+		echo -e "  $(PASS) HARNESS_NO_CACHE=true bypasses cache"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) HARNESS_NO_CACHE=true should bypass cache"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPDIR"
+	@# Test 3: Expired cache triggers re-fetch
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_ISSUE=CACHE-3 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		HARNESS_JIRA_BASE_URL=https://example.com HARNESS_JIRA_PROJECT=TST \
+		$(SCRIPTS)/jira-fetch.sh > /dev/null 2>&1; \
+	CONFIG_HASH=$$(echo "https://example.comTST" | md5sum 2>/dev/null | cut -c1-8 || echo "nocache"); \
+	echo "$$CONFIG_HASH" > "$$TMPDIR/.jira-cache-key-CACHE-3"; \
+	touch -t 202001010000 "$$TMPDIR/jira-context-CACHE-3.json"; \
+	OUTPUT=$$(HARNESS_ISSUE=CACHE-3 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" HARNESS_CACHE_TTL=1800 \
+		HARNESS_JIRA_BASE_URL=https://example.com HARNESS_JIRA_PROJECT=TST \
+		$(SCRIPTS)/jira-fetch.sh 2>&1); \
+	if ! echo "$$OUTPUT" | grep -q "Using cached"; then \
+		echo -e "  $(PASS) expired cache triggers re-fetch"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) expired cache should trigger re-fetch"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPDIR"
+	@# Test 4: Different config hash invalidates cache
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_ISSUE=CACHE-4 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		HARNESS_JIRA_BASE_URL=https://old.example.com HARNESS_JIRA_PROJECT=OLD \
+		$(SCRIPTS)/jira-fetch.sh > /dev/null 2>&1; \
+	OLD_HASH=$$(echo "https://old.example.comOLD" | md5sum 2>/dev/null | cut -c1-8 || echo "nocache"); \
+	echo "$$OLD_HASH" > "$$TMPDIR/.jira-cache-key-CACHE-4"; \
+	OUTPUT=$$(HARNESS_ISSUE=CACHE-4 HARNESS_JIRA_API_TOKEN="" HARNESS_CACHE_DIR="$$TMPDIR" \
+		HARNESS_JIRA_BASE_URL=https://new.example.com HARNESS_JIRA_PROJECT=NEW \
+		$(SCRIPTS)/jira-fetch.sh 2>&1); \
+	if ! echo "$$OUTPUT" | grep -q "Using cached"; then \
+		echo -e "  $(PASS) config change invalidates cache"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) config change should invalidate cache"; \
+		$(RECORD_FAIL); \
+	fi; \
+	rm -rf "$$TMPDIR"
+
+# ════════════════════════════════════════════════════════════════
+# API version detection tests
+# ════════════════════════════════════════════════════════════════
+
+## Test Jira REST API version auto-detection and explicit override
+test/jira/api-version: test/setup
+	@echo "--- jira-fetch.sh API version detection ---"
+	@# Test 1: Explicit API version override (v3)
+	@RESULT=$$(HARNESS_JIRA_API_VERSION=3 HARNESS_JIRA_API_TOKEN=test HARNESS_JIRA_AUTH_TYPE=bearer \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; detect_api_version "https://example.com"; echo "$$API_PATH"' 2>&1); \
+	if echo "$$RESULT" | grep -q "/rest/api/3"; then \
+		echo -e "  $(PASS) explicit HARNESS_JIRA_API_VERSION=3 sets /rest/api/3"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) explicit version override (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 2: Explicit API version override (v2)
+	@RESULT=$$(HARNESS_JIRA_API_VERSION=2 HARNESS_JIRA_API_TOKEN=test HARNESS_JIRA_AUTH_TYPE=bearer \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; detect_api_version "https://example.com"; echo "$$API_PATH"' 2>&1); \
+	if echo "$$RESULT" | grep -q "/rest/api/2"; then \
+		echo -e "  $(PASS) explicit HARNESS_JIRA_API_VERSION=2 sets /rest/api/2"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) explicit version 2 override (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 3: Auto-detect v3 (mock curl returns 200 for v3)
+	@printf '#!/bin/bash\nif echo "$$@" | grep -q "/rest/api/3/myself"; then echo -n "200"; else echo -n "404"; fi\n' > $(MOCK_BIN)/curl; \
+	chmod +x $(MOCK_BIN)/curl; \
+	RESULT=$$(PATH="$(MOCK_BIN):$$PATH" HARNESS_JIRA_API_VERSION="" HARNESS_JIRA_API_TOKEN=test HARNESS_JIRA_AUTH_TYPE=bearer \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; detect_api_version "https://example.com"; echo "$$API_PATH"' 2>&1); \
+	if echo "$$RESULT" | grep -q "/rest/api/3"; then \
+		echo -e "  $(PASS) auto-detect selects v3 when /myself returns 200"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) auto-detect v3 (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 4: Auto-detect v2 (mock curl returns 404 for v3, 200 for v2)
+	@printf '#!/bin/bash\nif echo "$$@" | grep -q "/rest/api/3/myself"; then echo -n "404"; elif echo "$$@" | grep -q "/rest/api/2/myself"; then echo -n "200"; else echo -n "000"; fi\n' > $(MOCK_BIN)/curl; \
+	chmod +x $(MOCK_BIN)/curl; \
+	RESULT=$$(PATH="$(MOCK_BIN):$$PATH" HARNESS_JIRA_API_VERSION="" HARNESS_JIRA_API_TOKEN=test HARNESS_JIRA_AUTH_TYPE=bearer \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; detect_api_version "https://example.com"; echo "$$API_PATH"' 2>&1); \
+	if echo "$$RESULT" | grep -q "/rest/api/2"; then \
+		echo -e "  $(PASS) auto-detect falls back to v2 when v3 returns 404"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) auto-detect v2 fallback (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Test 5: Both fail defaults to v2 with warning
+	@printf '#!/bin/bash\necho -n "000"\n' > $(MOCK_BIN)/curl; \
+	chmod +x $(MOCK_BIN)/curl; \
+	RESULT=$$(PATH="$(MOCK_BIN):$$PATH" HARNESS_JIRA_API_VERSION="" HARNESS_JIRA_API_TOKEN=test HARNESS_JIRA_AUTH_TYPE=bearer \
+		bash -c 'source $(HELPERS)/jira-functions.sh; setup_auth; detect_api_version "https://example.com"; echo "$$API_PATH"' 2>&1); \
+	if echo "$$RESULT" | grep -q "/rest/api/2" && echo "$$RESULT" | grep -q "Warning"; then \
+		echo -e "  $(PASS) unreachable server defaults to v2 with warning"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) unreachable server fallback (got '$$RESULT')"; \
+		$(RECORD_FAIL); \
+	fi
+
+# ════════════════════════════════════════════════════════════════
+# Integration test (requires real Jira credentials)
+# ════════════════════════════════════════════════════════════════
+
+## Test full jira-fetch against a real Jira instance (requires credentials + HARNESS_ISSUE)
+test/jira/fetch-integration: test/setup
+	@echo "--- jira-fetch.sh integration ---"
+	@if [ -z "$(HARNESS_JIRA_API_TOKEN)" ] || [ -z "$(HARNESS_ISSUE)" ]; then \
+		echo -e "  $(INFO) SKIPPED: set HARNESS_JIRA_API_TOKEN and HARNESS_ISSUE to run"; \
+	else \
+		TMPDIR=$$(mktemp -d); \
+		OUTPUT=$$(HARNESS_CACHE_DIR="$$TMPDIR" HARNESS_NO_CACHE=true \
+			$(SCRIPTS)/jira-fetch.sh 2>&1); \
+		EXIT_CODE=$$?; \
+		if [ "$$EXIT_CODE" -eq 0 ]; then \
+			CACHE_FILE="$$TMPDIR/jira-context-$(HARNESS_ISSUE).json"; \
+			if [ -f "$$CACHE_FILE" ]; then \
+				IS_PLACEHOLDER=$$(jq -r '._meta.placeholder' "$$CACHE_FILE" 2>/dev/null); \
+				FETCHED_KEY=$$(jq -r '.issue.key' "$$CACHE_FILE" 2>/dev/null); \
+				if [ "$$IS_PLACEHOLDER" = "false" ] && [ "$$FETCHED_KEY" = "$(HARNESS_ISSUE)" ]; then \
+					echo -e "  $(PASS) live fetch for $(HARNESS_ISSUE) succeeded"; \
+					$(RECORD_PASS); \
+				else \
+					echo -e "  $(FAIL) live fetch returned unexpected data (placeholder=$$IS_PLACEHOLDER, key=$$FETCHED_KEY)"; \
+					$(RECORD_FAIL); \
+				fi; \
+			else \
+				echo -e "  $(FAIL) cache file not created after live fetch"; \
+				$(RECORD_FAIL); \
+			fi; \
+		else \
+			echo -e "  $(FAIL) jira-fetch.sh exited with code $$EXIT_CODE"; \
+			echo "    $$OUTPUT" | head -5; \
+			$(RECORD_FAIL); \
+		fi; \
+		rm -rf "$$TMPDIR"; \
+	fi
+
+## Fetch Jira context and pretty-print it (not part of test suite, for inspection)
+test/jira/fetch-inspect:
+	@if [ -z "$(HARNESS_JIRA_API_TOKEN)" ] || [ -z "$(HARNESS_ISSUE)" ]; then \
+		echo "Set HARNESS_JIRA_API_TOKEN and HARNESS_ISSUE in .test.harness.local.env"; \
+		exit 1; \
+	fi
+	@TMPDIR=$$(mktemp -d); \
+	HARNESS_CACHE_DIR="$$TMPDIR" HARNESS_NO_CACHE=true \
+		$(SCRIPTS)/jira-fetch.sh >&2; \
+	CACHE_FILE="$$TMPDIR/jira-context-$(HARNESS_ISSUE).json"; \
+	if [ -f "$$CACHE_FILE" ]; then \
+		echo "" >&2; \
+		echo "=== Issue ===" >&2; \
+		jq '.issue | {key, type, status, summary}' "$$CACHE_FILE"; \
+		echo "" >&2; \
+		echo "=== Hierarchy ===" >&2; \
+		jq '.hierarchy[] | {key, type, status, summary}' "$$CACHE_FILE"; \
+		echo "" >&2; \
+		echo "=== Handbook Links ===" >&2; \
+		jq '.handbook_documents.links' "$$CACHE_FILE"; \
+		echo "" >&2; \
+		echo "=== Full Context ===" >&2; \
+		jq '.' "$$CACHE_FILE"; \
+	else \
+		echo "Error: context file not created" >&2; \
+		exit 1; \
+	fi; \
+	rm -rf "$$TMPDIR"
