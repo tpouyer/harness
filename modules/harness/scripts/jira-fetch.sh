@@ -18,12 +18,54 @@ setup_auth() {
     fi
 }
 
+# Detect the Jira REST API version (v3 for Cloud, v2 for Server/DC)
+# Sets API_PATH to the base API path (e.g. /rest/api/2 or /rest/api/3)
+detect_api_version() {
+    local base="$1"
+
+    # Allow explicit override
+    if [ -n "${HARNESS_JIRA_API_VERSION:-}" ]; then
+        API_PATH="/rest/api/${HARNESS_JIRA_API_VERSION}"
+        echo "Using configured API version: $API_PATH"
+        return
+    fi
+
+    # Try v3 first (Jira Cloud)
+    local v3_status
+    v3_status=$(curl -s -o /dev/null -w "%{http_code}" "${CURL_AUTH[@]}" \
+        -H "Content-Type: application/json" \
+        "${base}/rest/api/3/myself" 2>/dev/null || echo "000")
+
+    if [ "$v3_status" = "200" ]; then
+        API_PATH="/rest/api/3"
+        echo "Detected Jira Cloud (API v3)"
+        return
+    fi
+
+    # Fall back to v2 (Jira Server/Data Center)
+    local v2_status
+    v2_status=$(curl -s -o /dev/null -w "%{http_code}" "${CURL_AUTH[@]}" \
+        -H "Content-Type: application/json" \
+        "${base}/rest/api/2/myself" 2>/dev/null || echo "000")
+
+    if [ "$v2_status" = "200" ]; then
+        API_PATH="/rest/api/2"
+        echo "Detected Jira Server/DC (API v2)"
+        return
+    fi
+
+    # Default to v2 and let downstream errors surface
+    API_PATH="/rest/api/2"
+    echo "Warning: Could not detect Jira API version (v3: $v3_status, v2: $v2_status). Defaulting to v2." >&2
+    echo "  Check your credentials and HARNESS_JIRA_BASE_URL." >&2
+}
+
 # Function to fetch a Jira issue by key
 fetch_issue() {
     local ISSUE_KEY="$1"
     curl -s "${CURL_AUTH[@]}" \
         -H "Content-Type: application/json" \
-        "${BASE_URL}/rest/api/3/issue/${ISSUE_KEY}?expand=renderedFields" 2>/dev/null || echo "{}"
+        "${BASE_URL}${API_PATH}/issue/${ISSUE_KEY}?expand=renderedFields" 2>/dev/null || echo "{}"
 }
 
 # Function to extract web links from an issue that match the handbook repo
@@ -34,7 +76,7 @@ extract_handbook_links() {
     # Fetch remote links (web links) for the issue
     LINKS_RESPONSE=$(curl -s "${CURL_AUTH[@]}" \
         -H "Content-Type: application/json" \
-        "${BASE_URL}/rest/api/3/issue/${ISSUE_KEY}/remotelink" 2>/dev/null || echo "[]")
+        "${BASE_URL}${API_PATH}/issue/${ISSUE_KEY}/remotelink" 2>/dev/null || echo "[]")
 
     # Filter for handbook links and extract relevant info
     echo "$LINKS_RESPONSE" | jq --arg repo "$HANDBOOK_REPO" '[
@@ -210,13 +252,14 @@ fi
 
 BASE_URL="${HARNESS_JIRA_BASE_URL}"
 setup_auth
+detect_api_version "$BASE_URL"
 
 echo "Fetching from Jira API..."
 
 # Fetch issue details
 ISSUE_RESPONSE=$(curl -s "${CURL_AUTH[@]}" \
     -H "Content-Type: application/json" \
-    "${BASE_URL}/rest/api/3/issue/${ISSUE}?expand=renderedFields,changelog")
+    "${BASE_URL}${API_PATH}/issue/${ISSUE}?expand=renderedFields,changelog")
 
 if echo "$ISSUE_RESPONSE" | jq -e '.errorMessages' > /dev/null 2>&1; then
     ERROR=$(echo "$ISSUE_RESPONSE" | jq -r '.errorMessages[0] // "Unknown error"')
@@ -244,7 +287,7 @@ AC=$(echo "$ISSUE_RESPONSE" | jq -r '
 # Fetch comments
 COMMENTS=$(curl -s "${CURL_AUTH[@]}" \
     -H "Content-Type: application/json" \
-    "${BASE_URL}/rest/api/3/issue/${ISSUE}/comment" | jq '[.comments[:10] | .[] | {author: .author.displayName, body: .body, created: .created}]')
+    "${BASE_URL}${API_PATH}/issue/${ISSUE}/comment" | jq '[.comments[:10] | .[] | {author: .author.displayName, body: .body, created: .created}]')
 
 # Fetch epic if present
 EPIC_DATA="null"
@@ -252,7 +295,7 @@ if [ -n "$EPIC_KEY" ] && [ "$EPIC_KEY" != "null" ]; then
     echo "Fetching epic: $EPIC_KEY"
     EPIC_RESPONSE=$(curl -s "${CURL_AUTH[@]}" \
         -H "Content-Type: application/json" \
-        "${BASE_URL}/rest/api/3/issue/${EPIC_KEY}" 2>/dev/null || echo "{}")
+        "${BASE_URL}${API_PATH}/issue/${EPIC_KEY}" 2>/dev/null || echo "{}")
 
     if ! echo "$EPIC_RESPONSE" | jq -e '.errorMessages' > /dev/null 2>&1; then
         EPIC_SUMMARY=$(echo "$EPIC_RESPONSE" | jq -r '.fields.summary // ""')
@@ -261,7 +304,7 @@ if [ -n "$EPIC_KEY" ] && [ "$EPIC_KEY" != "null" ]; then
         # Get child issues in epic
         CHILDREN=$(curl -s "${CURL_AUTH[@]}" \
             -H "Content-Type: application/json" \
-            "${BASE_URL}/rest/api/3/search?jql=parent=${EPIC_KEY}&fields=key" | jq '[.issues[].key]')
+            "${BASE_URL}${API_PATH}/search?jql=parent=${EPIC_KEY}&fields=key" | jq '[.issues[].key]')
 
         EPIC_DATA=$(jq -n \
             --arg key "$EPIC_KEY" \

@@ -10,6 +10,8 @@ export HARNESS_BRANCH_PATTERN ?= ([A-Z]+-[0-9]+)
 # Jira auth type: "basic" (Cloud: email+token) or "bearer" (Server/DC: PAT)
 # Set to "auto" to detect based on whether HARNESS_JIRA_EMAIL is set
 export HARNESS_JIRA_AUTH_TYPE ?= auto
+# Jira REST API version: "2" (Server/DC), "3" (Cloud), or empty for auto-detect
+export HARNESS_JIRA_API_VERSION ?=
 
 # AI Provider Configuration
 export HARNESS_AI_PROVIDER ?= claude
