@@ -8,11 +8,14 @@ SHELL := /bin/bash
 export AAP_DEV_REPO ?= https://github.com/ansible/aap-dev.git
 export AAP_DEV_DIR ?= $(HOME)/aap-dev
 export AAP_DEV_BRANCH ?= main
-export AAP_VERSION ?= 2.6
+export AAP_VERSION ?= 2.6-next
 export AAP_CONTAINER_RUNTIME ?= podman
 
 # Skip deployment check if explicitly disabled
 export AAP_SKIP_DEPLOY_CHECK ?= false
+
+export AAP_DEFAULT_MAKE_TARGET ?= aap
+export AAP_INSTALL_LICENSE ?= false
 
 .PHONY: harness/aap-dev/help
 ## Show AAP-Dev help
@@ -59,7 +62,7 @@ harness/aap-dev/help:
 	@echo ""
 	@echo "Configuration:"
 	@echo "  AAP_DEV_DIR      Installation directory (default: ~/aap-dev)"
-	@echo "  AAP_VERSION      AAP version to run (default: 2.6)"
+	@echo "  AAP_VERSION      AAP version to run (default: 2.6-next)"
 	@echo "  AAP_DEV_BRANCH   Git branch to use (default: main)"
 	@echo ""
 	@echo "Examples:"
@@ -196,7 +199,10 @@ harness/aap-dev/start:
 	@echo ""
 	@echo "Press Ctrl+C to stop and undeploy."
 	@echo ""
-	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make aap
+	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) AAP_CONTAINER_RUNTIME=$(AAP_CONTAINER_RUNTIME) make $(AAP_DEFAULT_MAKE_TARGET)
+	@if [[ "$(AAP_INSTALL_LICENSE)" == "true" && "$(AAP_DEFAULT_MAKE_TARGET)" == "aap-deploy" ]]; then \
+		cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) AAP_CONTAINER_RUNTIME=$(AAP_CONTAINER_RUNTIME) make aap-apply-license; \
+	fi
 
 .PHONY: harness/aap-dev/stop
 ## Stop the AAP development environment (clean kind cluster)
