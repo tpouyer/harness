@@ -1,6 +1,65 @@
 # Maintainer Guide
 
-This document is for harness project maintainers who build and publish container images, cut releases, and manage the framework infrastructure.
+This document is for harness project maintainers who run tests, build and publish container images, cut releases, and manage the framework infrastructure.
+
+## Testing
+
+Harness includes a self-test framework in `Makefile.test` that validates the Jira fetch pipeline, issue detection, auth logic, caching, and API version detection.
+
+### Running tests
+
+Run all tests (no credentials required for unit tests):
+
+```bash
+make -f Makefile.test test
+```
+
+Run a specific test group:
+
+```bash
+make -f Makefile.test test/jira/detect-issue
+make -f Makefile.test test/jira/auth-setup
+make -f Makefile.test test/jira/placeholder
+make -f Makefile.test test/jira/cache
+make -f Makefile.test test/jira/api-version
+make -f Makefile.test test/jira/fetch-integration
+```
+
+### Integration tests
+
+The `test/jira/fetch-integration` target performs a live fetch against a real Jira instance. It is skipped unless credentials are configured.
+
+Create `.test.harness.local.env` in the repo root (gitignored):
+
+```env
+HARNESS_JIRA_BASE_URL=https://issues.redhat.com
+HARNESS_JIRA_API_TOKEN=your-jira-pat
+HARNESS_JIRA_AUTH_TYPE=bearer
+HARNESS_ISSUE=AAP-12345
+```
+
+The Makefile loads this file automatically and exports the variables to scripts.
+
+### Inspecting fetch output
+
+To run a live Jira fetch and pretty-print the context (hierarchy, handbook links, full JSON):
+
+```bash
+make -f Makefile.test test/jira/fetch-inspect
+```
+
+### Test coverage
+
+| Test group | Tests | What's tested |
+|---|---|---|
+| `detect-issue` | 6 | Explicit override, project keys, branch parsing, commit messages, error exit |
+| `auth-setup` | 4 | Bearer/basic selection, auto mode, quote stripping |
+| `placeholder` | 4 | File creation, issue key, meta flag, JSON structure |
+| `cache` | 4 | Cache hit, `HARNESS_NO_CACHE` bypass, TTL expiry, config hash invalidation |
+| `api-version` | 5 | Explicit v2/v3, auto-detect v3, v2 fallback, unreachable default |
+| `fetch-integration` | 1 | Live Jira fetch (requires credentials) |
+
+---
 
 ## Container Image Publishing
 
