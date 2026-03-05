@@ -415,3 +415,20 @@ harness/
     ├── scripts/                  # Shell scripts
     └── templates/                # config.env and local.env examples
 ```
+
+---
+
+## Contributing
+
+Contributions are welcome! This project is maintained by the Ansible Automation Platform team.
+
+For maintainers who need to build and publish container images or cut releases, see **[MAINTAINERS.md](MAINTAINERS.md)**.
+
+### Reporting issues
+
+- [Open an issue](https://github.com/ansible-automation-platform/harness/issues) for bugs or feature requests
+- For security issues, follow the [Ansible security disclosure process](https://docs.ansible.com/ansible/latest/community/security.html)
+
+### License
+
+This project is licensed under the Apache License 2.0.
