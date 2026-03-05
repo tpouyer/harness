@@ -34,7 +34,8 @@ case "$ACTION" in
             echo "  Comments: $COMMENT_COUNT"
 
             # Show hierarchy
-            HIERARCHY_COUNT=$(jq '.hierarchy | length // 0' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+            HIERARCHY_COUNT=$(jq '(.hierarchy // []) | length' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+            HIERARCHY_COUNT=${HIERARCHY_COUNT:-0}
             if [ "$HIERARCHY_COUNT" -gt 0 ]; then
                 echo ""
                 echo "  Strategic Hierarchy:"
@@ -42,7 +43,8 @@ case "$ACTION" in
             fi
 
             # Show handbook documents
-            DOC_COUNT=$(jq '.handbook_documents.documents | length // 0' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+            DOC_COUNT=$(jq '(.handbook_documents.documents // []) | length' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+            DOC_COUNT=${DOC_COUNT:-0}
             if [ "$DOC_COUNT" -gt 0 ]; then
                 echo ""
                 echo "  Handbook Documents: $DOC_COUNT found"

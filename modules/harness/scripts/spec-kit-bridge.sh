@@ -37,7 +37,8 @@ extract_jira_context() {
         INITIATIVE_SUMMARY=$(jq -r '.hierarchy[] | select(.type == "initiative") | .summary // ""' "$JIRA_CONTEXT" 2>/dev/null | head -1)
 
         # Extract handbook documents (SDP/Proposals)
-        HANDBOOK_DOC_COUNT=$(jq -r '.handbook_documents.documents | length // 0' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+        HANDBOOK_DOC_COUNT=$(jq -r '(.handbook_documents.documents // []) | length' "$JIRA_CONTEXT" 2>/dev/null || echo "0")
+        HANDBOOK_DOC_COUNT=${HANDBOOK_DOC_COUNT:-0}
         if [ "$HANDBOOK_DOC_COUNT" -gt 0 ]; then
             HANDBOOK_DOCS=$(jq -r '.handbook_documents.documents[] | "### \(.title // "Document")\n**Type:** \(.type)\n**Source:** \(.source_issue)\n**URL:** \(.url)\n\n\(.content)\n"' "$JIRA_CONTEXT" 2>/dev/null || echo "")
         else
