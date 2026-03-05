@@ -11,10 +11,21 @@ HANDBOOK_REPO="https://github.com/ansible/handbook"
 # Build curl auth args based on auth type (bearer vs basic)
 # Sets CURL_AUTH as an array to be used in curl calls
 setup_auth() {
-    if [ "${HARNESS_JIRA_AUTH_TYPE:-auto}" = "bearer" ] || [ -z "$HARNESS_JIRA_EMAIL" ]; then
-        CURL_AUTH=(-H "Authorization: Bearer ${HARNESS_JIRA_API_TOKEN}")
+    # Strip surrounding quotes that Make's -include may preserve
+    local TOKEN="${HARNESS_JIRA_API_TOKEN}"
+    TOKEN="${TOKEN#\"}"
+    TOKEN="${TOKEN%\"}"
+    TOKEN="${TOKEN#\'}"
+    TOKEN="${TOKEN%\'}"
+
+    local EMAIL="${HARNESS_JIRA_EMAIL}"
+    EMAIL="${EMAIL#\"}"
+    EMAIL="${EMAIL%\"}"
+
+    if [ "${HARNESS_JIRA_AUTH_TYPE:-auto}" = "bearer" ] || [ -z "$EMAIL" ]; then
+        CURL_AUTH=(-H "Authorization: Bearer ${TOKEN}")
     else
-        CURL_AUTH=(-u "${HARNESS_JIRA_EMAIL}:${HARNESS_JIRA_API_TOKEN}")
+        CURL_AUTH=(-u "${EMAIL}:${TOKEN}")
     fi
 }
 
