@@ -8,10 +8,20 @@ CACHE_DIR="${HARNESS_CACHE_DIR:-.harness/.cache}"
 CACHE_TTL="${HARNESS_CACHE_TTL:-1800}"
 HANDBOOK_REPO="https://github.com/ansible/handbook"
 
+# Build curl auth args based on auth type (bearer vs basic)
+# Sets CURL_AUTH as an array to be used in curl calls
+setup_auth() {
+    if [ "${HARNESS_JIRA_AUTH_TYPE:-auto}" = "bearer" ] || [ -z "$HARNESS_JIRA_EMAIL" ]; then
+        CURL_AUTH=(-H "Authorization: Bearer ${HARNESS_JIRA_API_TOKEN}")
+    else
+        CURL_AUTH=(-u "${HARNESS_JIRA_EMAIL}:${HARNESS_JIRA_API_TOKEN}")
+    fi
+}
+
 # Function to fetch a Jira issue by key
 fetch_issue() {
     local ISSUE_KEY="$1"
-    curl -s -u "$AUTH" \
+    curl -s "${CURL_AUTH[@]}" \
         -H "Content-Type: application/json" \
         "${BASE_URL}/rest/api/3/issue/${ISSUE_KEY}?expand=renderedFields" 2>/dev/null || echo "{}"
 }
@@ -22,7 +32,7 @@ extract_handbook_links() {
     local LINKS_RESPONSE
 
     # Fetch remote links (web links) for the issue
-    LINKS_RESPONSE=$(curl -s -u "$AUTH" \
+    LINKS_RESPONSE=$(curl -s "${CURL_AUTH[@]}" \
         -H "Content-Type: application/json" \
         "${BASE_URL}/rest/api/3/issue/${ISSUE_KEY}/remotelink" 2>/dev/null || echo "[]")
 
@@ -165,8 +175,8 @@ if [ "$HARNESS_NO_CACHE" != "true" ] && [ -f "$CACHE_FILE" ] && [ -f "$CACHE_KEY
 fi
 
 # Validate credentials
-if [ -z "$HARNESS_JIRA_EMAIL" ] || [ -z "$HARNESS_JIRA_API_TOKEN" ]; then
-    echo "Warning: Jira credentials not configured" >&2
+if [ -z "$HARNESS_JIRA_API_TOKEN" ]; then
+    echo "Warning: Jira credentials not configured (HARNESS_JIRA_API_TOKEN not set)" >&2
     echo "Creating placeholder context..."
 
     cat > "$CACHE_FILE" << EOF
@@ -198,13 +208,13 @@ EOF
     exit 0
 fi
 
-AUTH="${HARNESS_JIRA_EMAIL}:${HARNESS_JIRA_API_TOKEN}"
 BASE_URL="${HARNESS_JIRA_BASE_URL}"
+setup_auth
 
 echo "Fetching from Jira API..."
 
 # Fetch issue details
-ISSUE_RESPONSE=$(curl -s -u "$AUTH" \
+ISSUE_RESPONSE=$(curl -s "${CURL_AUTH[@]}" \
     -H "Content-Type: application/json" \
     "${BASE_URL}/rest/api/3/issue/${ISSUE}?expand=renderedFields,changelog")
 
@@ -232,7 +242,7 @@ AC=$(echo "$ISSUE_RESPONSE" | jq -r '
 ')
 
 # Fetch comments
-COMMENTS=$(curl -s -u "$AUTH" \
+COMMENTS=$(curl -s "${CURL_AUTH[@]}" \
     -H "Content-Type: application/json" \
     "${BASE_URL}/rest/api/3/issue/${ISSUE}/comment" | jq '[.comments[:10] | .[] | {author: .author.displayName, body: .body, created: .created}]')
 
@@ -240,7 +250,7 @@ COMMENTS=$(curl -s -u "$AUTH" \
 EPIC_DATA="null"
 if [ -n "$EPIC_KEY" ] && [ "$EPIC_KEY" != "null" ]; then
     echo "Fetching epic: $EPIC_KEY"
-    EPIC_RESPONSE=$(curl -s -u "$AUTH" \
+    EPIC_RESPONSE=$(curl -s "${CURL_AUTH[@]}" \
         -H "Content-Type: application/json" \
         "${BASE_URL}/rest/api/3/issue/${EPIC_KEY}" 2>/dev/null || echo "{}")
 
@@ -249,7 +259,7 @@ if [ -n "$EPIC_KEY" ] && [ "$EPIC_KEY" != "null" ]; then
         EPIC_DESC=$(echo "$EPIC_RESPONSE" | jq -r '.fields.description // ""')
 
         # Get child issues in epic
-        CHILDREN=$(curl -s -u "$AUTH" \
+        CHILDREN=$(curl -s "${CURL_AUTH[@]}" \
             -H "Content-Type: application/json" \
             "${BASE_URL}/rest/api/3/search?jql=parent=${EPIC_KEY}&fields=key" | jq '[.issues[].key]')
 
