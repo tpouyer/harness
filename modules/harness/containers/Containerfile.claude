@@ -1,10 +1,11 @@
-# Harness Agent Container - Claude (Anthropic)
-# This container runs AI agents with Claude API access
+# Harness Agent Container - Claude via Google Cloud Vertex AI
+# This container runs AI agents using Claude models accessed through
+# Google Cloud Vertex AI, with Application Default Credentials (ADC).
 
 FROM python:3.11-slim
 
 LABEL maintainer="Platform Team"
-LABEL description="Harness AI agent container for Anthropic Claude"
+LABEL description="Harness AI agent container for Claude via Google Cloud Vertex AI"
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,24 +13,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     jq \
     ca-certificates \
+    gnupg \
+    apt-transport-https \
     && rm -rf /var/lib/apt/lists/*
 
-# Install tree-sitter for code analysis
+# Install Google Cloud SDK
+RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+    | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+    > /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    google-cloud-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies (Anthropic SDK with Vertex support)
 RUN pip install --no-cache-dir \
-    anthropic>=0.18.0 \
+    "anthropic[vertex]>=0.18.0" \
+    google-auth>=2.23.0 \
+    google-cloud-aiplatform>=1.38.0 \
     tree-sitter>=0.20.0 \
     tree-sitter-python \
     tree-sitter-javascript \
     pyyaml \
     requests
 
+# Install Claude Code CLI
+RUN curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh \
+    && chmod +x /tmp/claude-install.sh \
+    && /tmp/claude-install.sh \
+    && rm /tmp/claude-install.sh
+
 # Create non-root user
 RUN useradd -m -s /bin/bash harness
 USER harness
 WORKDIR /workspace
 
-# Create workspace directories
-RUN mkdir -p /workspace/.harness
+# Create workspace and config directories
+RUN mkdir -p /workspace/.harness /home/harness/.config/gcloud
 
 # Default entrypoint for agent execution
 COPY --chown=harness:harness entrypoint-claude.sh /usr/local/bin/entrypoint.sh

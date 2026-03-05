@@ -14,6 +14,11 @@ export HARNESS_AI_API_KEY ?=
 export HARNESS_AI_MODEL ?= claude-sonnet-4-5-20250514
 export HARNESS_AI_FALLBACK ?= openai,local
 
+# Google Cloud / Vertex AI Configuration (required when using Claude via Vertex)
+export GCP_PROJECT_ID ?=
+export GCP_REGION ?= us-east5
+export GCP_QUOTA_PROJECT ?= $(GCP_PROJECT_ID)
+
 # Per-capability provider routing (optional)
 export HARNESS_PROVIDER_INTENT ?= $(HARNESS_AI_PROVIDER)
 export HARNESS_PROVIDER_TESTS ?= $(HARNESS_AI_PROVIDER)
@@ -22,7 +27,7 @@ export HARNESS_PROVIDER_DISCOVERY ?= local
 
 # Paude Configuration
 export HARNESS_PAUDE_BACKEND ?= podman
-export HARNESS_PAUDE_ALLOWED_DOMAINS ?= api.anthropic.com,api.openai.com,*.atlassian.net
+export HARNESS_PAUDE_ALLOWED_DOMAINS ?= api.anthropic.com,api.openai.com,*.googleapis.com,*.atlassian.net
 export HARNESS_CONTAINER_REGISTRY ?= ghcr.io/ansible-automation-platform
 
 # Cache Configuration

@@ -28,10 +28,24 @@ case "$ACTION" in
         IMAGE=$(get_container_image "$PROVIDER")
         ALLOWED="${HARNESS_PAUDE_ALLOWED_DOMAINS:-api.anthropic.com,api.openai.com}"
 
+        # Build GCP mount flags for Claude via Vertex AI
+        GCP_FLAGS=""
+        if [ "$PROVIDER" = "claude" ] && [ -n "$GCP_PROJECT_ID" ]; then
+            ADC_DIR="$HOME/.config/gcloud"
+            if [ -d "$ADC_DIR" ]; then
+                GCP_FLAGS="--mount $ADC_DIR:/home/harness/.config/gcloud:ro"
+            fi
+            GCP_FLAGS="$GCP_FLAGS --env GCP_PROJECT_ID=$GCP_PROJECT_ID"
+            GCP_FLAGS="$GCP_FLAGS --env GCP_REGION=${GCP_REGION:-us-east5}"
+            GCP_FLAGS="$GCP_FLAGS --env GCP_QUOTA_PROJECT=${GCP_QUOTA_PROJECT:-$GCP_PROJECT_ID}"
+        fi
+
         if command -v paude &> /dev/null; then
+            # shellcheck disable=SC2086
             paude create --yolo \
                 --image "$IMAGE" \
                 --allowed-domains "$ALLOWED" \
+                $GCP_FLAGS \
                 "$SESSION_NAME" || {
                     echo "Note: paude create failed - this may be expected if paude is not fully configured"
                 }
