@@ -16,7 +16,7 @@ export HARNESS_JIRA_API_VERSION ?=
 # AI Provider Configuration
 export HARNESS_AI_PROVIDER ?= claude
 export HARNESS_AI_API_KEY ?=
-export HARNESS_AI_MODEL ?= claude-sonnet-4-5-20250514
+export HARNESS_AI_MODEL ?= claude-sonnet-4-6
 export HARNESS_AI_FALLBACK ?= openai,local
 
 # Google Cloud / Vertex AI Configuration (required when using Claude via Vertex)
@@ -33,7 +33,7 @@ export HARNESS_PROVIDER_DISCOVERY ?= local
 # Paude Configuration
 export HARNESS_PAUDE_BACKEND ?= podman
 export HARNESS_PAUDE_ALLOWED_DOMAINS ?= api.anthropic.com,api.openai.com,*.googleapis.com,*.atlassian.net
-export HARNESS_CONTAINER_REGISTRY ?= ghcr.io/ansible-automation-platform
+export HARNESS_CONTAINER_REGISTRY ?= quay.io/aap
 
 # Cache Configuration
 export HARNESS_CACHE_TTL ?= 1800

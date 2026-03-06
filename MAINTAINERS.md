@@ -68,18 +68,18 @@ Harness provides pre-built container images for each AI provider (Claude, OpenAI
 ### Prerequisites
 
 - Podman or Docker installed
-- GitHub CLI (`gh`) installed and authenticated, or `GITHUB_TOKEN` environment variable set
-- Push access to `ghcr.io/ansible-automation-platform/harness-*` images
+- Push access to `quay.io/aap/harness-*` images
+- Quay.io credentials (robot account or personal login)
 
-### Logging in to ghcr.io
+### Logging in to quay.io
 
 ```bash
-# Using gh CLI (recommended - handles SSO automatically)
+# Interactive login (will prompt for credentials)
 make -f Makefile.publish login
 
-# Or set GITHUB_TOKEN manually
-export GITHUB_TOKEN=ghp_...
-export GITHUB_USER=your-username
+# Or provide credentials via environment
+export REGISTRY_USER=your-quay-username
+export REGISTRY_PASSWORD=your-quay-token
 make -f Makefile.publish login
 ```
 
@@ -151,7 +151,7 @@ make -f Makefile.publish clean
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CONTAINER_RUNTIME` | Auto-detected | `podman` or `docker` |
-| `REGISTRY` | `ghcr.io` | Container registry |
+| `REGISTRY` | `quay.io` | Container registry |
 | `ORG` | `ansible-automation-platform` | GitHub organization |
 | `PROJECT` | `harness` | Project name |
 | `VERSION` | Git describe or `latest` | Image version tag |
@@ -221,7 +221,7 @@ podman build \
 
 # Push the manifest
 podman manifest push harness-claude-multiarch \
-  ghcr.io/ansible-automation-platform/harness-claude:v1.3.0
+  quay.io/aap/harness-claude:v1.3.0
 ```
 
 *(Future: automate this in Makefile.publish or GitHub Actions)*
@@ -253,8 +253,8 @@ jobs:
         provider: [claude, openai, vertex, local]
     steps:
       - uses: actions/checkout@v4
-      - name: Login to ghcr.io
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Login to quay.io
+        run: echo "${{ secrets.QUAY_TOKEN }}" | podman login quay.io -u ${{ secrets.QUAY_USER }} --password-stdin
       - name: Build and push
         run: make -f Makefile.publish VERSION=${{ github.ref_name }} publish-${{ matrix.provider }}
 ```
@@ -265,17 +265,14 @@ jobs:
 
 ### Authentication fails
 
-Ensure your GitHub token has the `write:packages` scope:
+Ensure you have valid credentials for quay.io:
 
 ```bash
-gh auth refresh -s write:packages
-```
+# Interactive login
+podman login quay.io
 
-For SSO orgs, authorize the token:
-
-```bash
-# Visit the SSO link shown in the error, then re-login
-make -f Makefile.publish login
+# Or use a robot account
+podman login quay.io -u "aap+robot_name" -p "robot-token"
 ```
 
 ### Build fails with "permission denied"
@@ -288,11 +285,10 @@ chmod +x modules/harness/containers/entrypoint-*.sh
 
 ### Image push fails with "unauthorized"
 
-Check that you're logged in and have push access to the `ansible-automation-platform` org:
+Check that you're logged in and have push access to the `aap` organization on quay.io:
 
 ```bash
-gh auth status
-podman login ghcr.io  # or docker login
+podman login quay.io  # or docker login quay.io
 ```
 
 ### Container runtime not found

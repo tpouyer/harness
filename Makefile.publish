@@ -16,8 +16,8 @@
 CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null || echo "podman")
 
 # Registry and org
-REGISTRY ?= ghcr.io
-ORG ?= ansible-automation-platform
+REGISTRY ?= quay.io
+ORG ?= aap
 PROJECT ?= harness
 
 # Version (defaults to git describe, fallback to latest)
@@ -69,15 +69,16 @@ help: ## Show this help
 # Authentication
 # ══════════════════════════════════════════════════════════════════════════════
 
-login: ## Login to ghcr.io (requires GITHUB_TOKEN env var or gh CLI)
+login: ## Login to container registry (supports quay.io, ghcr.io, or any registry)
 	@echo "Logging in to $(REGISTRY)..."
-	@if [ -n "$$GITHUB_TOKEN" ]; then \
-		echo "$$GITHUB_TOKEN" | $(CONTAINER_RUNTIME) login $(REGISTRY) -u $$GITHUB_USER --password-stdin; \
-	elif command -v gh >/dev/null 2>&1; then \
+	@if [ -n "$$REGISTRY_PASSWORD" ]; then \
+		echo "$$REGISTRY_PASSWORD" | $(CONTAINER_RUNTIME) login $(REGISTRY) -u $${REGISTRY_USER:-$$USER} --password-stdin; \
+	elif [ -n "$$GITHUB_TOKEN" ] && echo "$(REGISTRY)" | grep -q "ghcr.io"; then \
+		echo "$$GITHUB_TOKEN" | $(CONTAINER_RUNTIME) login $(REGISTRY) -u $${GITHUB_USER:-$$USER} --password-stdin; \
+	elif command -v gh >/dev/null 2>&1 && echo "$(REGISTRY)" | grep -q "ghcr.io"; then \
 		gh auth token | $(CONTAINER_RUNTIME) login $(REGISTRY) -u $$(gh api user --jq .login) --password-stdin; \
 	else \
-		echo "Error: Set GITHUB_TOKEN or install 'gh' CLI"; \
-		exit 1; \
+		$(CONTAINER_RUNTIME) login $(REGISTRY); \
 	fi
 
 # ══════════════════════════════════════════════════════════════════════════════

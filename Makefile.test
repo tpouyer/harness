@@ -15,6 +15,21 @@ export HARNESS_JIRA_AUTH_TYPE
 export HARNESS_JIRA_EMAIL
 export HARNESS_ISSUE
 export GITHUB_TOKEN
+export GCP_PROJECT_ID
+export GCP_REGION
+export GCP_QUOTA_PROJECT
+export OPENAI_API_KEY
+export HARNESS_AI_MODEL
+
+# Container image config
+CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null || echo "podman")
+REGISTRY ?= quay.io
+ORG ?= aap
+PROJECT ?= harness
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "latest")
+IMAGE_PREFIX := $(REGISTRY)/$(ORG)/$(PROJECT)
+CONTEXT_DIR := $(HARNESS_PATH)/modules/harness/containers
+PROVIDERS := claude openai vertex local
 
 SCRIPTS := $(HARNESS_PATH)/modules/harness/scripts
 TEST_DIR := $(shell mktemp -d)
@@ -33,10 +48,15 @@ RECORD_FAIL = FAIL_COUNT=$$(cat $(RESULTS_DIR)/fail); echo $$((FAIL_COUNT + 1)) 
 
 .PHONY: test test/jira test/jira/detect-issue test/jira/auth-setup test/jira/placeholder \
         test/jira/cache test/jira/api-version test/jira/fetch-integration test/jira/fetch-inspect \
+        test/containers test/containers/build test/containers/push test/containers/pull \
+        test/containers/smoke test/containers/model-claude test/containers/model-openai \
         test/setup test/summary
 
-## Run all tests
+## Run all tests (unit + integration, excludes container tests)
 test: test/setup test/jira test/summary
+
+## Run all tests including container image build/push/pull/smoke
+test-all: test/setup test/jira test/containers test/summary
 
 ## Run all Jira fetch tests
 test/jira: test/jira/detect-issue test/jira/auth-setup test/jira/placeholder test/jira/cache test/jira/api-version test/jira/fetch-integration
@@ -441,6 +461,178 @@ test/jira/fetch-integration: test/setup
 		fi; \
 		rm -rf "$$TMPDIR"; \
 	fi
+
+# ════════════════════════════════════════════════════════════════
+# Container image tests
+# ════════════════════════════════════════════════════════════════
+
+## Run all container tests (build, push, pull, smoke, model)
+test/containers: test/containers/build test/containers/push test/containers/pull test/containers/smoke test/containers/model-claude
+
+## Build all provider container images
+test/containers/build: test/setup
+	@echo "--- container build ---"
+	@for PROVIDER in $(PROVIDERS); do \
+		echo "  Building $(IMAGE_PREFIX)-$$PROVIDER:$(VERSION)..."; \
+		if $(CONTAINER_RUNTIME) build \
+			--file $(CONTEXT_DIR)/Containerfile.$$PROVIDER \
+			--tag $(IMAGE_PREFIX)-$$PROVIDER:$(VERSION) \
+			$(CONTEXT_DIR) > /dev/null 2>&1; then \
+			echo -e "  $(PASS) build $$PROVIDER"; \
+			$(RECORD_PASS); \
+		else \
+			echo -e "  $(FAIL) build $$PROVIDER"; \
+			$(RECORD_FAIL); \
+		fi; \
+	done
+
+## Push all provider images to registry (requires login)
+test/containers/push: test/setup
+	@echo "--- container push ---"
+	@for PROVIDER in $(PROVIDERS); do \
+		echo "  Pushing $(IMAGE_PREFIX)-$$PROVIDER:$(VERSION)..."; \
+		if $(CONTAINER_RUNTIME) push $(IMAGE_PREFIX)-$$PROVIDER:$(VERSION) > /dev/null 2>&1; then \
+			echo -e "  $(PASS) push $$PROVIDER"; \
+			$(RECORD_PASS); \
+		else \
+			echo -e "  $(FAIL) push $$PROVIDER"; \
+			$(RECORD_FAIL); \
+		fi; \
+	done
+
+## Pull all provider images from registry
+test/containers/pull: test/setup
+	@echo "--- container pull ---"
+	@for PROVIDER in $(PROVIDERS); do \
+		echo "  Pulling $(IMAGE_PREFIX)-$$PROVIDER:$(VERSION)..."; \
+		if $(CONTAINER_RUNTIME) pull $(IMAGE_PREFIX)-$$PROVIDER:$(VERSION) > /dev/null 2>&1; then \
+			echo -e "  $(PASS) pull $$PROVIDER"; \
+			$(RECORD_PASS); \
+		else \
+			echo -e "  $(FAIL) pull $$PROVIDER"; \
+			$(RECORD_FAIL); \
+		fi; \
+	done
+
+## Smoke test all built images (verify SDK imports, no API calls)
+test/containers/smoke: test/setup
+	@echo "--- container smoke tests ---"
+	@# Claude: verify anthropic[vertex] SDK and gcloud are installed
+	@if $(CONTAINER_RUNTIME) run --rm --entrypoint /bin/bash \
+		$(IMAGE_PREFIX)-claude:$(VERSION) \
+		-c 'python3 -c "from anthropic import AnthropicVertex; print(\"OK\")" && which gcloud > /dev/null' > /dev/null 2>&1; then \
+		echo -e "  $(PASS) smoke claude (anthropic[vertex] + gcloud)"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) smoke claude (anthropic[vertex] + gcloud)"; \
+		$(RECORD_FAIL); \
+	fi
+	@# OpenAI: verify openai SDK is installed
+	@if $(CONTAINER_RUNTIME) run --rm --entrypoint /bin/bash \
+		$(IMAGE_PREFIX)-openai:$(VERSION) \
+		-c 'python3 -c "from openai import OpenAI; print(\"OK\")"' > /dev/null 2>&1; then \
+		echo -e "  $(PASS) smoke openai (openai SDK)"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) smoke openai (openai SDK)"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Vertex: verify google-cloud-aiplatform SDK is installed
+	@if $(CONTAINER_RUNTIME) run --rm --entrypoint /bin/bash \
+		$(IMAGE_PREFIX)-vertex:$(VERSION) \
+		-c 'python3 -c "from vertexai.generative_models import GenerativeModel; print(\"OK\")"' > /dev/null 2>&1; then \
+		echo -e "  $(PASS) smoke vertex (google-cloud-aiplatform SDK)"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) smoke vertex (google-cloud-aiplatform SDK)"; \
+		$(RECORD_FAIL); \
+	fi
+	@# Local: verify ollama binary and python3 are installed
+	@if $(CONTAINER_RUNTIME) run --rm --entrypoint /bin/bash \
+		$(IMAGE_PREFIX)-local:$(VERSION) \
+		-c 'which ollama > /dev/null && python3 -c "import requests; print(\"OK\")"' > /dev/null 2>&1; then \
+		echo -e "  $(PASS) smoke local (ollama + python3)"; \
+		$(RECORD_PASS); \
+	else \
+		echo -e "  $(FAIL) smoke local (ollama + python3)"; \
+		$(RECORD_FAIL); \
+	fi
+
+## Test Claude model via Vertex AI (requires GCP credentials + GCP_PROJECT_ID)
+test/containers/model-claude: test/setup
+	@echo "--- container model test: claude ---"
+	@if [ -z "$(GCP_PROJECT_ID)" ]; then \
+		echo -e "  $(INFO) SKIPPED: set GCP_PROJECT_ID in .test.harness.local.env"; \
+	elif [ ! -f "$(HOME)/.config/gcloud/application_default_credentials.json" ]; then \
+		echo -e "  $(INFO) SKIPPED: run 'gcloud auth application-default login' first"; \
+	else \
+		TMPDIR=$$(mktemp -d); \
+		chmod 777 "$$TMPDIR"; \
+		echo "Say hello in exactly 3 words." > "$$TMPDIR/prompt.md"; \
+		chmod 644 "$$TMPDIR/prompt.md"; \
+		RESULT=$$($(CONTAINER_RUNTIME) run --rm \
+			-e GCP_PROJECT_ID=$(GCP_PROJECT_ID) \
+			-e GCP_REGION=$${GCP_REGION:-us-east5} \
+			-e GCP_QUOTA_PROJECT=$${GCP_QUOTA_PROJECT:-$(GCP_PROJECT_ID)} \
+			-e HARNESS_AI_MODEL=$${HARNESS_AI_MODEL:-claude-sonnet-4-5-20250514} \
+			-v $(HOME)/.config/gcloud/application_default_credentials.json:/tmp/adc.json:z \
+			-v "$$TMPDIR":/workspace/.harness:z \
+			$(IMAGE_PREFIX)-claude:$(VERSION) assist 2>&1); \
+		EXIT_CODE=$$?; \
+		if [ "$$EXIT_CODE" -eq 0 ] && [ -f "$$TMPDIR/result.json" ]; then \
+			MODEL=$$(jq -r '.model // "unknown"' "$$TMPDIR/result.json" 2>/dev/null); \
+			RESPONSE=$$(jq -r '.result // ""' "$$TMPDIR/result.json" 2>/dev/null); \
+			if [ -n "$$RESPONSE" ]; then \
+				echo -e "  $(PASS) claude model call succeeded (model=$$MODEL)"; \
+				$(RECORD_PASS); \
+			else \
+				echo -e "  $(FAIL) claude model returned empty response"; \
+				$(RECORD_FAIL); \
+			fi; \
+		else \
+			echo -e "  $(FAIL) claude container exited with code $$EXIT_CODE"; \
+			echo "    $$(echo "$$RESULT" | tail -3)"; \
+			$(RECORD_FAIL); \
+		fi; \
+		rm -rf "$$TMPDIR"; \
+	fi
+
+## Test OpenAI model (requires OPENAI_API_KEY)
+test/containers/model-openai: test/setup
+	@echo "--- container model test: openai ---"
+	@if [ -z "$(OPENAI_API_KEY)" ]; then \
+		echo -e "  $(INFO) SKIPPED: set OPENAI_API_KEY in .test.harness.local.env"; \
+	else \
+		TMPDIR=$$(mktemp -d); \
+		chmod 777 "$$TMPDIR"; \
+		echo "Say hello in exactly 3 words." > "$$TMPDIR/prompt.md"; \
+		chmod 644 "$$TMPDIR/prompt.md"; \
+		RESULT=$$($(CONTAINER_RUNTIME) run --rm \
+			-e OPENAI_API_KEY=$(OPENAI_API_KEY) \
+			-v "$$TMPDIR":/workspace/.harness:z \
+			$(IMAGE_PREFIX)-openai:$(VERSION) assist 2>&1); \
+		EXIT_CODE=$$?; \
+		if [ "$$EXIT_CODE" -eq 0 ] && [ -f "$$TMPDIR/result.json" ]; then \
+			MODEL=$$(jq -r '.model // "unknown"' "$$TMPDIR/result.json" 2>/dev/null); \
+			RESPONSE=$$(jq -r '.result // ""' "$$TMPDIR/result.json" 2>/dev/null); \
+			if [ -n "$$RESPONSE" ]; then \
+				echo -e "  $(PASS) openai model call succeeded (model=$$MODEL)"; \
+				$(RECORD_PASS); \
+			else \
+				echo -e "  $(FAIL) openai model returned empty response"; \
+				$(RECORD_FAIL); \
+			fi; \
+		else \
+			echo -e "  $(FAIL) openai container exited with code $$EXIT_CODE"; \
+			echo "    $$(echo "$$RESULT" | tail -3)"; \
+			$(RECORD_FAIL); \
+		fi; \
+		rm -rf "$$TMPDIR"; \
+	fi
+
+# ════════════════════════════════════════════════════════════════
+# Inspection targets (not part of test suite)
+# ════════════════════════════════════════════════════════════════
 
 ## Fetch Jira context and pretty-print it (not part of test suite, for inspection)
 test/jira/fetch-inspect:

@@ -29,7 +29,7 @@ RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
 
 # Install Python dependencies (Anthropic SDK with Vertex support)
 RUN pip install --no-cache-dir \
-    "anthropic[vertex]>=0.18.0" \
+    "anthropic[vertex]" \
     google-auth>=2.23.0 \
     google-cloud-aiplatform>=1.38.0 \
     tree-sitter>=0.20.0 \

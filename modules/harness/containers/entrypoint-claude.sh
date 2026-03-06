@@ -8,7 +8,7 @@
 #   GCP_REGION                  - Google Cloud region (default: us-east5)
 #   GCP_QUOTA_PROJECT           - Quota project for ADC (default: $GCP_PROJECT_ID)
 #   GOOGLE_APPLICATION_CREDENTIALS - Path to service account key (for non-interactive auth)
-#   HARNESS_AI_MODEL            - Claude model to use (default: claude-sonnet-4-5-20250514)
+#   HARNESS_AI_MODEL            - Claude model to use (default: claude-opus-4-6)
 
 set -e
 
@@ -38,10 +38,8 @@ GCLOUD_DIR="/home/harness/.config/gcloud"
 if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ] && [ -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
     echo "Authenticating with service account key..."
     gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet
-    gcloud config set project "$GCP_PROJECT_ID" --quiet
 elif [ -f "$GCLOUD_DIR/application_default_credentials.json" ]; then
     echo "Using Application Default Credentials."
-    gcloud config set project "$GCP_PROJECT_ID" --quiet
     gcloud auth application-default set-quota-project "$GCP_QUOTA_PROJECT" --quiet 2>/dev/null || true
 else
     echo "Warning: No credentials found." >&2
@@ -82,7 +80,7 @@ client = AnthropicVertex(project_id=project_id, region=region)
 with open(os.environ.get("PROMPT_FILE", "/workspace/.harness/prompt.md")) as f:
     prompt = f.read()
 
-model = os.environ.get("HARNESS_AI_MODEL", "claude-sonnet-4-5-20250514")
+model = os.environ.get("HARNESS_AI_MODEL", "claude-opus-4-6")
 
 response = client.messages.create(
     model=model,
