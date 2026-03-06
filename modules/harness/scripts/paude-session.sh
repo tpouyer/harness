@@ -108,20 +108,40 @@ case "$ACTION" in
         # Render the prompt
         "$SCRIPT_DIR/prompt-render.sh" "$TASK_TYPE" > "$CACHE_DIR/prompt-${ISSUE}.md"
 
-        # Create session if needed, sync code, and start
         if command -v paude &> /dev/null; then
-            ensure_session
+            SESSION_STATUS=$(paude list 2>/dev/null | grep "$SESSION_NAME" | awk '{print $3}' || echo "")
 
-            # Push workspace into session via git remote
-            if ! git remote | grep -q "paude-${SESSION_NAME}" 2>/dev/null; then
-                echo "Syncing workspace to session..."
-                paude remote add --push "$SESSION_NAME" 2>/dev/null || true
+            if [ "$SESSION_STATUS" = "running" ]; then
+                # Session is running — copy prompt in and reconnect
+                echo "Copying prompt to running session..."
+                paude cp "$CACHE_DIR/prompt-${ISSUE}.md" "${SESSION_NAME}:harness-prompt.md"
+                echo "Connecting (prompt at ~/harness-prompt.md)..."
+                paude connect "$SESSION_NAME"
+
+            elif [ -n "$SESSION_STATUS" ]; then
+                # Session exists but stopped — start it (preserves prior context)
+                echo "Resuming session..."
+                paude start "$SESSION_NAME"
+
             else
-                git push "paude-${SESSION_NAME}" HEAD 2>/dev/null || true
-            fi
+                # No session — create with prompt and start
+                echo "Creating new session: $SESSION_NAME"
+                PROMPT_CONTENT=$(cat "$CACHE_DIR/prompt-${ISSUE}.md")
+                DOMAIN_FLAGS=$(build_domain_flags)
 
-            echo "Starting session..."
-            paude start "$SESSION_NAME"
+                # shellcheck disable=SC2086
+                paude create --yolo \
+                    $DOMAIN_FLAGS \
+                    -a "-p \"$PROMPT_CONTENT\"" \
+                    "$SESSION_NAME"
+
+                # Sync workspace code into session
+                echo "Syncing workspace..."
+                paude remote add --push "$SESSION_NAME" 2>/dev/null || true
+
+                echo "Starting session..."
+                paude start "$SESSION_NAME"
+            fi
         else
             echo "Note: Running in simulation mode (paude not installed)"
             echo ""
