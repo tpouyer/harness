@@ -112,12 +112,37 @@ case "$ACTION" in
         "$SCRIPT_DIR/prompt-render.sh" "$TASK_TYPE" > "$CACHE_DIR/prompt-${ISSUE}.md"
 
         # Copy prompt into paude session and connect
-        if command -v paude &> /dev/null && paude list 2>/dev/null | grep -q "$SESSION_NAME"; then
+        if command -v paude &> /dev/null; then
+            # Create session if it doesn't exist
+            if ! paude list 2>/dev/null | grep -q "$SESSION_NAME"; then
+                echo "Creating session: $SESSION_NAME"
+                IMAGE=$(get_container_image "$PROVIDER")
+                ALLOWED="${HARNESS_PAUDE_ALLOWED_DOMAINS:-api.anthropic.com,api.openai.com}"
+
+                GCP_FLAGS=""
+                if [ "$PROVIDER" = "claude" ] && [ -n "$GCP_PROJECT_ID" ]; then
+                    ADC_DIR="$HOME/.config/gcloud"
+                    if [ -d "$ADC_DIR" ]; then
+                        GCP_FLAGS="--mount $ADC_DIR/application_default_credentials.json:/tmp/adc.json:z"
+                    fi
+                    GCP_FLAGS="$GCP_FLAGS --env GCP_PROJECT_ID=$GCP_PROJECT_ID"
+                    GCP_FLAGS="$GCP_FLAGS --env GCP_REGION=${GCP_REGION:-us-east5}"
+                    GCP_FLAGS="$GCP_FLAGS --env GCP_QUOTA_PROJECT=${GCP_QUOTA_PROJECT:-$GCP_PROJECT_ID}"
+                fi
+
+                # shellcheck disable=SC2086
+                paude create --yolo \
+                    --image "$IMAGE" \
+                    --allowed-domains "$ALLOWED" \
+                    $GCP_FLAGS \
+                    "$SESSION_NAME"
+            fi
+
             paude cp "$CACHE_DIR/prompt-${ISSUE}.md" "${SESSION_NAME}:.harness/prompt.md"
             echo "Prompt copied to session. Connecting..."
             paude connect "$SESSION_NAME"
         else
-            echo "Note: Running in simulation mode (paude not available)"
+            echo "Note: Running in simulation mode (paude not installed)"
             echo ""
             echo "Would send to $PROVIDER agent:"
             echo "---"
@@ -136,7 +161,7 @@ case "$ACTION" in
                     issue: $issue,
                     status: "simulated",
                     result: {
-                        summary: "This is a simulated response. Configure paude and AI credentials for real results.",
+                        summary: "This is a simulated response. Install paude and configure AI credentials for real results.",
                         details: []
                     },
                     _meta: {
