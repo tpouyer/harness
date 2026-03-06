@@ -15,46 +15,49 @@ PROVIDER="${3:-${HARNESS_AI_PROVIDER:-claude}}"
 ISSUE=$("$SCRIPT_DIR/detect-issue.sh" 2>/dev/null || echo "default")
 SESSION_NAME="harness-${ISSUE}"
 
-# Container image based on provider
-get_container_image() {
-    local provider="$1"
-    echo "${HARNESS_CONTAINER_REGISTRY:-quay.io/aap}/harness-${provider}:latest"
+# Build allowed-domains flags (paude expects repeated --allowed-domains flags)
+build_domain_flags() {
+    local DOMAINS="${HARNESS_PAUDE_ALLOWED_DOMAINS:-default}"
+    local FLAGS=""
+    IFS=',' read -ra DOMAIN_LIST <<< "$DOMAINS"
+    for domain in "${DOMAIN_LIST[@]}"; do
+        FLAGS="$FLAGS --allowed-domains $domain"
+    done
+    echo "$FLAGS"
+}
+
+# Create a paude session if it doesn't already exist
+ensure_session() {
+    if paude list 2>/dev/null | grep -q "$SESSION_NAME"; then
+        return 0
+    fi
+
+    echo "Creating session: $SESSION_NAME"
+    local DOMAIN_FLAGS
+    DOMAIN_FLAGS=$(build_domain_flags)
+
+    # shellcheck disable=SC2086
+    paude create --yolo \
+        $DOMAIN_FLAGS \
+        "$SESSION_NAME"
 }
 
 case "$ACTION" in
     create)
         echo "Creating paude session: $SESSION_NAME"
 
-        IMAGE=$(get_container_image "$PROVIDER")
-        ALLOWED="${HARNESS_PAUDE_ALLOWED_DOMAINS:-api.anthropic.com,api.openai.com}"
-
-        # Build GCP mount flags for Claude via Vertex AI
-        GCP_FLAGS=""
-        if [ "$PROVIDER" = "claude" ] && [ -n "$GCP_PROJECT_ID" ]; then
-            ADC_DIR="$HOME/.config/gcloud"
-            if [ -d "$ADC_DIR" ]; then
-                GCP_FLAGS="--mount $ADC_DIR/application_default_credentials.json:/tmp/adc.json:z"
-            fi
-            GCP_FLAGS="$GCP_FLAGS --env GCP_PROJECT_ID=$GCP_PROJECT_ID"
-            GCP_FLAGS="$GCP_FLAGS --env GCP_REGION=${GCP_REGION:-us-east5}"
-            GCP_FLAGS="$GCP_FLAGS --env GCP_QUOTA_PROJECT=${GCP_QUOTA_PROJECT:-$GCP_PROJECT_ID}"
-        fi
-
         if command -v paude &> /dev/null; then
+            DOMAIN_FLAGS=$(build_domain_flags)
+
             # shellcheck disable=SC2086
             paude create --yolo \
-                --image "$IMAGE" \
-                --allowed-domains "$ALLOWED" \
-                $GCP_FLAGS \
+                $DOMAIN_FLAGS \
                 "$SESSION_NAME" || {
                     echo "Note: paude create failed - this may be expected if paude is not fully configured"
                 }
         else
             echo "Warning: paude not installed"
-            echo "Would create session with:"
-            echo "  Name: $SESSION_NAME"
-            echo "  Image: $IMAGE"
-            echo "  Allowed domains: $ALLOWED"
+            echo "Would create session: $SESSION_NAME"
         fi
         ;;
 
@@ -82,18 +85,12 @@ case "$ACTION" in
         fi
         ;;
 
-    logs)
-        if command -v paude &> /dev/null; then
-            paude logs "$SESSION_NAME"
-        fi
-        ;;
-
     cleanup)
         echo "Cleaning up harness sessions..."
         if command -v paude &> /dev/null; then
             paude list 2>/dev/null | grep "harness-" | while read -r session; do
                 paude stop "$session" 2>/dev/null || true
-                paude rm "$session" 2>/dev/null || true
+                paude delete "$session" --confirm 2>/dev/null || true
             done
         fi
         ;;
@@ -111,36 +108,12 @@ case "$ACTION" in
         # Render the prompt
         "$SCRIPT_DIR/prompt-render.sh" "$TASK_TYPE" > "$CACHE_DIR/prompt-${ISSUE}.md"
 
-        # Copy prompt into paude session and connect
+        # Create session if needed, copy prompt, and connect
         if command -v paude &> /dev/null; then
-            # Create session if it doesn't exist
-            if ! paude list 2>/dev/null | grep -q "$SESSION_NAME"; then
-                echo "Creating session: $SESSION_NAME"
-                IMAGE=$(get_container_image "$PROVIDER")
-                ALLOWED="${HARNESS_PAUDE_ALLOWED_DOMAINS:-api.anthropic.com,api.openai.com}"
-
-                GCP_FLAGS=""
-                if [ "$PROVIDER" = "claude" ] && [ -n "$GCP_PROJECT_ID" ]; then
-                    ADC_DIR="$HOME/.config/gcloud"
-                    if [ -d "$ADC_DIR" ]; then
-                        GCP_FLAGS="--mount $ADC_DIR/application_default_credentials.json:/tmp/adc.json:z"
-                    fi
-                    GCP_FLAGS="$GCP_FLAGS --env GCP_PROJECT_ID=$GCP_PROJECT_ID"
-                    GCP_FLAGS="$GCP_FLAGS --env GCP_REGION=${GCP_REGION:-us-east5}"
-                    GCP_FLAGS="$GCP_FLAGS --env GCP_QUOTA_PROJECT=${GCP_QUOTA_PROJECT:-$GCP_PROJECT_ID}"
-                fi
-
-                # shellcheck disable=SC2086
-                paude create --yolo \
-                    --image "$IMAGE" \
-                    --allowed-domains "$ALLOWED" \
-                    $GCP_FLAGS \
-                    "$SESSION_NAME"
-            fi
-
+            ensure_session
             paude cp "$CACHE_DIR/prompt-${ISSUE}.md" "${SESSION_NAME}:.harness/prompt.md"
             echo "Prompt copied to session. Connecting..."
-            paude connect "$SESSION_NAME"
+            paude start "$SESSION_NAME"
         else
             echo "Note: Running in simulation mode (paude not installed)"
             echo ""
@@ -201,7 +174,6 @@ case "$ACTION" in
         echo "  start               Start/resume session"
         echo "  stop                Stop session"
         echo "  list                List harness sessions"
-        echo "  logs                Show session logs"
         echo "  cleanup             Stop and remove all harness sessions"
         echo "  run <task> [prov]   Run a task in the agent"
         echo "  connect             Connect to a running session"
