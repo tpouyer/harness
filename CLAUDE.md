@@ -60,7 +60,8 @@ Red Hat Jira uses non-standard custom field IDs. The script discovers them dynam
 - No `interactive` or `exec` commands exist in paude
 - `connect` attaches to a running session
 - `cp` copies files between local and session (e.g. prompts in, results out)
-- The `run` action renders a prompt, copies it into the session via `paude cp`, then connects
+- The `run` action auto-creates a session if none exists, renders a prompt, copies it via `paude cp`, then connects
+- Simulation mode only triggers when paude is not installed, not when a session doesn't exist yet
 
 ## Key Implementation Details
 - `gh` CLI calls must unset `GITHUB_TOKEN`/`GH_TOKEN` env vars to prevent overriding keyring auth with a less-privileged token
