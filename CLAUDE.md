@@ -54,6 +54,14 @@ Red Hat Jira uses non-standard custom field IDs. The script discovers them dynam
 ## Hierarchy
 `jira-fetch.sh` traverses: Story -> Epic -> Initiative -> Outcome (up to 5 levels). Acceptance criteria is extracted at every level. Handbook documents linked as GitHub PRs are fetched using commit SHA via `gh` CLI.
 
+## Paude (Container Session Manager)
+`paude-session.sh` wraps the `paude` CLI for managing AI agent container sessions.
+- Valid paude subcommands: `create`, `start`, `stop`, `connect`, `list`, `cp`, `remote`, `delete`
+- No `interactive` or `exec` commands exist in paude
+- `connect` attaches to a running session
+- `cp` copies files between local and session (e.g. prompts in, results out)
+- The `run` action renders a prompt, copies it into the session via `paude cp`, then connects
+
 ## Key Implementation Details
 - `gh` CLI calls must unset `GITHUB_TOKEN`/`GH_TOKEN` env vars to prevent overriding keyring auth with a less-privileged token
 - GitHub PR content fetched by head commit SHA (not branch ref) to survive branch deletion on merged PRs
