@@ -111,13 +111,11 @@ case "$ACTION" in
         # Render the prompt
         "$SCRIPT_DIR/prompt-render.sh" "$TASK_TYPE" > "$CACHE_DIR/prompt-${ISSUE}.md"
 
-        # In production, this would invoke paude to run the agent
-        # For now, simulate the call
+        # Copy prompt into paude session and connect
         if command -v paude &> /dev/null && paude list 2>/dev/null | grep -q "$SESSION_NAME"; then
-            # Mount context and run
-            paude exec "$SESSION_NAME" \
-                --mount "$CACHE_DIR:/workspace/.harness" \
-                -- cat /workspace/.harness/prompt-${ISSUE}.md
+            paude cp "$CACHE_DIR/prompt-${ISSUE}.md" "${SESSION_NAME}:.harness/prompt.md"
+            echo "Prompt copied to session. Connecting..."
+            paude connect "$SESSION_NAME"
         else
             echo "Note: Running in simulation mode (paude not available)"
             echo ""
@@ -148,17 +146,13 @@ case "$ACTION" in
         fi
         ;;
 
-    interactive)
-        echo "Starting interactive session for: $TASK_TYPE"
-        echo "Provider: $PROVIDER"
-        echo ""
+    connect)
+        echo "Connecting to session: $SESSION_NAME"
 
         if command -v paude &> /dev/null; then
-            "$SCRIPT_DIR/prompt-render.sh" "$TASK_TYPE" > "$CACHE_DIR/prompt-${ISSUE}.md"
-            paude interactive "$SESSION_NAME" --context "$CACHE_DIR/prompt-${ISSUE}.md"
+            paude connect "$SESSION_NAME"
         else
-            echo "Interactive mode requires paude to be installed"
-            echo "Install with: pip install paude"
+            echo "Connect requires paude to be installed"
         fi
         ;;
 
@@ -185,7 +179,7 @@ case "$ACTION" in
         echo "  logs                Show session logs"
         echo "  cleanup             Stop and remove all harness sessions"
         echo "  run <task> [prov]   Run a task in the agent"
-        echo "  interactive <task>  Start interactive session"
+        echo "  connect             Connect to a running session"
         echo "  query <text>        Run a single query"
         ;;
 esac

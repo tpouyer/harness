@@ -1,6 +1,6 @@
 # Harness Implementation Assistance Module
 
-.PHONY: harness/assist harness/assist/interactive harness/assist/query
+.PHONY: harness/assist harness/assist/connect harness/assist/query
 
 ## Interactive implementation assistance with full context
 harness/assist: harness/context
@@ -10,7 +10,7 @@ harness/assist: harness/context
 		echo ""; \
 		echo "[Dry run - prompt shown above, agent not called]"; \
 	else \
-		$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh interactive assist $(HARNESS_PROVIDER_ASSIST); \
+		$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh run assist $(HARNESS_PROVIDER_ASSIST); \
 	fi
 
 ## Run a single query against the assistant
