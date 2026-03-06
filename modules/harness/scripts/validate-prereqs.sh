@@ -35,23 +35,18 @@ check_command "curl" "curl" "brew install curl" || MISSING=$((MISSING + 1))
 check_command "jq" "jq" "brew install jq" || MISSING=$((MISSING + 1))
 check_command "make" "GNU Make" "Pre-installed on most systems" || MISSING=$((MISSING + 1))
 
-# Check for container runtime
+# Check for AI agent stack
+check_command "opencode" "OpenCode" "make harness/deps/opencode" || echo "  (optional: install with make harness/deps/opencode)"
+check_command "bd" "Beads (bd)" "make harness/deps/beads" || echo "  (optional: install with make harness/deps/beads)"
+
+# Check for container runtime (needed for aap-dev)
 if command -v podman &> /dev/null; then
     echo -e "${GREEN}✓${NC} Podman found: $(command -v podman)"
 elif command -v docker &> /dev/null; then
     echo -e "${YELLOW}!${NC} Docker found (Podman preferred): $(command -v docker)"
 else
-    echo -e "${RED}✗${NC} Container runtime not found"
+    echo -e "${YELLOW}!${NC} Container runtime not found (needed for aap-dev)"
     echo "  Install Podman: brew install podman"
-    MISSING=$((MISSING + 1))
-fi
-
-# Check for paude
-if command -v paude &> /dev/null; then
-    echo -e "${GREEN}✓${NC} Paude found: $(command -v paude)"
-else
-    echo -e "${YELLOW}!${NC} Paude not found (optional for local testing)"
-    echo "  Install: pip install paude"
 fi
 
 echo ""

@@ -4,9 +4,9 @@
 
 SHELL := /bin/bash
 
-# AAP-Dev Configuration
+# AAP-Dev Configuration (defaults from defaults.mk, can override here)
 export AAP_DEV_REPO ?= https://github.com/ansible/aap-dev.git
-export AAP_DEV_DIR ?= $(HOME)/aap-dev
+export AAP_DEV_DIR ?= $(HARNESS_STATE_DIR)/aap-dev
 export AAP_DEV_BRANCH ?= main
 export AAP_VERSION ?= 2.6-next
 export AAP_CONTAINER_RUNTIME ?= podman
@@ -51,6 +51,25 @@ harness/aap-dev/help:
 	@echo "  harness/aap-dev/test/hub      Run hub tests"
 	@echo "  harness/aap-dev/test/init     Initialize test suite"
 	@echo ""
+	@echo "Source Configuration:"
+	@echo "  harness/aap-dev/configure-sources     Interactive source setup"
+	@echo "  harness/aap-dev/configure-sources-auto Non-interactive (ANSWERS_FILE=path)"
+	@echo "  harness/aap-dev/show-sources           Show configured sources"
+	@echo "  harness/aap-dev/reset-sources           Reset to nightly defaults"
+	@echo ""
+	@echo "Data Seeding:"
+	@echo "  harness/aap-dev/seed          Seed data using default playbook"
+	@echo "  harness/aap-dev/seed-custom   Seed with custom playbook (SEED_PLAYBOOK=path)"
+	@echo ""
+	@echo "Observability:"
+	@echo "  harness/aap-dev/metrics       Show CPU/memory per pod"
+	@echo "  harness/aap-dev/metrics-node  Show CPU/memory per node"
+	@echo "  harness/aap-dev/observability Install Prometheus + Grafana stack"
+	@echo ""
+	@echo "Content Regeneration:"
+	@echo "  harness/aap-dev/regenerate-containerfiles  Update Containerfiles from upstream"
+	@echo "  harness/aap-dev/regenerate-k8s-manifests   Extract K8s manifests from live AAP"
+	@echo ""
 	@echo "Deployment:"
 	@echo "  harness/aap-dev/deploy        Deploy AAP (non-blocking)"
 	@echo "  harness/aap-dev/wait-up       Wait for AAP API to be available"
@@ -61,7 +80,8 @@ harness/aap-dev/help:
 	@echo "  harness/aap-dev/clean-all     Full removal (really-clean)"
 	@echo ""
 	@echo "Configuration:"
-	@echo "  AAP_DEV_DIR      Installation directory (default: ~/aap-dev)"
+	@echo "  AAP_DEV_DIR      Installation directory (default: .harness/aap-dev)"
+	@echo "                   Override in .harness.local.env to use existing clone"
 	@echo "  AAP_VERSION      AAP version to run (default: 2.6-next)"
 	@echo "  AAP_DEV_BRANCH   Git branch to use (default: main)"
 	@echo ""
@@ -511,3 +531,130 @@ harness/aap-dev/test/all: harness/aap-dev/ensure-running
 	@cd "$(AAP_DEV_DIR)" && AAP_VERSION=$(AAP_VERSION) make test-atf-run-es
 	@echo ""
 	@echo "All tests complete!"
+
+# ═══════════════════════════════════════════════════════════════
+# SOURCE CONFIGURATION TARGETS
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/aap-dev/configure-sources
+## Configure custom sources interactively
+harness/aap-dev/configure-sources:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; exit 1; \
+	fi
+	@cd "$(AAP_DEV_DIR)" && make configure-sources
+
+.PHONY: harness/aap-dev/configure-sources-auto
+## Configure sources from answers file (non-interactive)
+## Usage: make harness/aap-dev/configure-sources-auto ANSWERS_FILE=path/to/answers.json
+harness/aap-dev/configure-sources-auto:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; exit 1; \
+	fi
+	@if [ -z "$(ANSWERS_FILE)" ]; then \
+		echo "Error: ANSWERS_FILE is required."; exit 1; \
+	fi
+	@cd "$(AAP_DEV_DIR)" && \
+		CONFIGURATION_ANSWERS_FILE="$(ANSWERS_FILE)" \
+		CONFIGURATION_ERROR_ON_NO_ANSWER=true \
+		make configure-sources
+
+.PHONY: harness/aap-dev/show-sources
+## Show currently configured sources
+harness/aap-dev/show-sources:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; exit 1; \
+	fi
+	@SOURCES_FILE="$(AAP_DEV_DIR)/src/$(AAP_VERSION)/sources.yaml"; \
+	if [ -f "$$SOURCES_FILE" ]; then \
+		echo "Current sources ($(AAP_VERSION)):"; \
+		cat "$$SOURCES_FILE"; \
+	else \
+		echo "No custom sources configured (using default nightly images)"; \
+	fi
+
+.PHONY: harness/aap-dev/reset-sources
+## Reset sources to defaults (remove src/ overrides)
+harness/aap-dev/reset-sources:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; exit 1; \
+	fi
+	@echo "Resetting sources to defaults..."
+	@rm -rf "$(AAP_DEV_DIR)/src/$(AAP_VERSION)"
+	@echo "Sources reset. Next deployment will use default nightly images."
+
+# ═══════════════════════════════════════════════════════════════
+# DATA SEEDING TARGETS
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/aap-dev/seed
+## Seed data into AAP instance using default playbook
+harness/aap-dev/seed: harness/aap-dev/ensure-running
+	@ADMIN_PW=$$(cd "$(AAP_DEV_DIR)" && make admin-password 2>&1 | tail -1); \
+	VERSION_PORT=$$(echo $(AAP_VERSION) | tr -d '.' | sed 's/-.*//'); \
+	cd "$(AAP_DEV_DIR)" && ansible-playbook \
+		playbooks/data-seeding/aap-dev-data-seeding.yaml \
+		-e "aap_host=http://localhost:449$${VERSION_PORT}" \
+		-e "aap_admin_password=$${ADMIN_PW}"
+
+.PHONY: harness/aap-dev/seed-custom
+## Seed data using a custom playbook
+## Usage: make harness/aap-dev/seed-custom SEED_PLAYBOOK=path/to/playbook.yaml
+harness/aap-dev/seed-custom: harness/aap-dev/ensure-running
+	@if [ -z "$(SEED_PLAYBOOK)" ]; then \
+		echo "Error: SEED_PLAYBOOK is required."; exit 1; \
+	fi
+	@ADMIN_PW=$$(cd "$(AAP_DEV_DIR)" && make admin-password 2>&1 | tail -1); \
+	VERSION_PORT=$$(echo $(AAP_VERSION) | tr -d '.' | sed 's/-.*//'); \
+	cd "$(AAP_DEV_DIR)" && ansible-playbook \
+		"$(SEED_PLAYBOOK)" \
+		-e "aap_host=http://localhost:449$${VERSION_PORT}" \
+		-e "aap_admin_password=$${ADMIN_PW}"
+
+# ═══════════════════════════════════════════════════════════════
+# CONTENT REGENERATION TARGETS
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/aap-dev/regenerate-containerfiles
+## Regenerate Containerfiles from upstream/nightly definitions
+harness/aap-dev/regenerate-containerfiles:
+	@if [ ! -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Error: AAP-Dev not installed."; exit 1; \
+	fi
+	@echo "Regenerating Containerfiles..."
+	@cd "$(AAP_DEV_DIR)" && make regenerate-containerfiles
+
+.PHONY: harness/aap-dev/regenerate-k8s-manifests
+## Extract K8s manifests from running AAP instance
+harness/aap-dev/regenerate-k8s-manifests: harness/aap-dev/ensure-running
+	@echo "Extracting K8s manifests from running instance..."
+	@cd "$(AAP_DEV_DIR)" && \
+		KUBECONFIG="$(AAP_DEV_DIR)/tmp/kubeconfig-$(AAP_VERSION)" \
+		make regenerate-k8s-manifests
+
+# ═══════════════════════════════════════════════════════════════
+# OBSERVABILITY TARGETS
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/aap-dev/metrics
+## Show CPU/memory usage per pod
+harness/aap-dev/metrics: harness/aap-dev/ensure-running
+	@cd "$(AAP_DEV_DIR)" && make metrics-server-install 2>/dev/null || true
+	@KUBECONFIG="$(AAP_DEV_DIR)/tmp/kubeconfig-$(AAP_VERSION)" \
+		"$(AAP_DEV_DIR)/bin/kubectl" top pod --all-namespaces
+
+.PHONY: harness/aap-dev/metrics-node
+## Show CPU/memory usage per node
+harness/aap-dev/metrics-node: harness/aap-dev/ensure-running
+	@cd "$(AAP_DEV_DIR)" && make metrics-server-install 2>/dev/null || true
+	@KUBECONFIG="$(AAP_DEV_DIR)/tmp/kubeconfig-$(AAP_VERSION)" \
+		"$(AAP_DEV_DIR)/bin/kubectl" top node
+
+.PHONY: harness/aap-dev/observability
+## Install Prometheus + Grafana stack and start port-forward
+harness/aap-dev/observability: harness/aap-dev/ensure-running
+	@cd "$(AAP_DEV_DIR)" && make kube-prometheus-stack-install
+	@echo ""
+	@echo "Starting Grafana port-forward (http://localhost:13000)..."
+	@echo "Credentials: admin / prom-operator"
+	@cd "$(AAP_DEV_DIR)" && make kube-prometheus-stack-port-forward

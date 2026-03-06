@@ -103,28 +103,9 @@ validate_ai_provider() {
     esac
 }
 
-validate_paude() {
-    echo "Validating Paude configuration..."
-
-    if [ "$HARNESS_PAUDE_BACKEND" = "podman" ]; then
-        if command -v podman &> /dev/null; then
-            if podman info &> /dev/null; then
-                echo -e "${GREEN}✓${NC} Podman is running"
-            else
-                echo -e "${YELLOW}!${NC} Podman not running (start with: podman machine start)"
-                WARNINGS=$((WARNINGS + 1))
-            fi
-        else
-            echo -e "${RED}✗${NC} Podman not found"
-            ERRORS=$((ERRORS + 1))
-        fi
-    fi
-}
-
 # Run validations
 validate_jira
 validate_ai_provider
-validate_paude
 
 echo ""
 if [ $ERRORS -gt 0 ]; then

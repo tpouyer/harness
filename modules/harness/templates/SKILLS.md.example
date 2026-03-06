@@ -1,0 +1,68 @@
+# SKILLS.md
+
+## Feature Implementation Pattern
+<!-- Define the standard workflow for implementing features in this project -->
+<!--
+1. Create a feature branch from main
+2. Write failing tests first
+3. Implement the feature
+4. Ensure all tests pass
+5. Update API documentation if endpoints changed
+-->
+
+## Filing Cross-Team Jira Issues
+
+When an audit story (security, compatibility, docs, etc.) identifies work
+that belongs to another team, follow this process:
+
+### 1. Determine the Target Team
+Check AGENTS.md "Team Ownership" section for the correct Jira project
+and component.
+
+### 2. Create the Issue
+Use the jira_create_issue tool with:
+- project: from AGENTS.md team ownership table
+- issue_type: Task (or Bug for security findings)
+- component: from AGENTS.md team ownership table
+- labels: ["harness-generated", "<audit-type>"]
+- summary: "[Harness/<audit>] <concise description>"
+- description: Include finding details, originating epic, and specific ask
+- link: "is caused by" -> the originating beads task's Jira issue
+
+### 3. Record in Beads
+After creating the Jira issue, add it as a note on the originating beads
+task so there is a complete audit trail:
+  bd comment <task-id> "Filed JIRA-XXXXX against <team> for <finding>"
+
+### 4. Security Findings
+Security issues follow a different process:
+- Critical/High: Do NOT file in public Jira. Use SECBUGS project.
+- Medium/Low: File in the component's project with component: Security
+- Always add label: security-finding
+- Never include exploit details in public issue descriptions
+
+### 5. Documentation Issues
+- File in the component's project, component: Documentation
+- Include: what doc is wrong, what it should say, link to code change
+- Add label: docs-update
+- Priority: match the originating story's priority
+
+## Hot Reload Workflow
+
+When iterating on code with aap-dev, prefer local paths for fast feedback:
+
+1. `aap_dev_configure_sources` with `local_path` + `polling: true`
+2. `aap_dev_ensure_running` (once -- builds and deploys)
+3. Edit code locally -- Skaffold auto-syncs into running containers
+4. `aap_dev_test` -- runs against live deployment with your changes
+5. Repeat steps 3-4 without restarting AAP
+6. `aap_dev_reset_sources` when done
+
+## Debugging Guide
+<!-- Common issues and how to diagnose them in this codebase -->
+
+## Security Requirements
+<!-- Project-specific security requirements -->
+<!-- - All user input must be validated at the API boundary -->
+<!-- - Use parameterized queries for database access -->
+<!-- - No secrets in code -- use environment variables -->

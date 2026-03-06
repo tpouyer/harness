@@ -1,0 +1,336 @@
+# Harness OpenCode + SwarmTools + Beads Integration
+# OpenCode + SwarmTools + Beads integration for AI agent workflows
+
+SHELL := /bin/bash
+
+HARNESS_STATE_DIR ?= .harness
+
+# OpenCode (pinned version)
+HARNESS_OPENCODE_VERSION ?= v0.1.0
+HARNESS_OPENCODE_BIN ?= opencode
+
+# SwarmTools
+HARNESS_SWARM_WORKERS ?= 3
+
+# Beads
+HARNESS_BEADS_BIN ?= bd
+
+# Prompt templates
+HARNESS_PROMPTS_DIR ?= $(HARNESS_PATH)/modules/harness/prompts
+
+# ═══════════════════════════════════════════════════════════════
+# INITIALIZATION
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/init
+## Initialize harness for a project (beads, swarm, opencode config)
+harness/init: harness/deps/check
+	@echo "Initializing Harness..."
+	@mkdir -p $(HARNESS_STATE_DIR)/.cache
+	@mkdir -p $(HARNESS_STATE_DIR)/context
+	@# Config files
+	@if [ ! -f $(HARNESS_STATE_DIR)/config.env ]; then \
+		cp $(HARNESS_PATH)/modules/harness/templates/config.env.example $(HARNESS_STATE_DIR)/config.env; \
+		echo "Created $(HARNESS_STATE_DIR)/config.env"; \
+	fi
+	@if [ ! -f .harness.local.env ]; then \
+		cp $(HARNESS_PATH)/modules/harness/templates/local.env.example .harness.local.env.example; \
+		echo "Created .harness.local.env.example — copy to .harness.local.env and add credentials"; \
+	fi
+	@# Beads
+	@if [ ! -d .beads ]; then \
+		echo "Initializing beads..."; \
+		$(HARNESS_BEADS_BIN) init 2>/dev/null || echo "  beads init skipped (already initialized or not installed)"; \
+	fi
+	@# Beads Jira config
+	@if command -v $(HARNESS_BEADS_BIN) >/dev/null 2>&1 && [ -n "$(HARNESS_JIRA_BASE_URL)" ]; then \
+		echo "Configuring beads Jira tracker..."; \
+		$(HARNESS_BEADS_BIN) config set jira.url "$(HARNESS_JIRA_BASE_URL)" 2>/dev/null || true; \
+		$(HARNESS_BEADS_BIN) config set jira.project "$(HARNESS_JIRA_PROJECT)" 2>/dev/null || true; \
+		$(HARNESS_BEADS_BIN) config set jira.api_version "$(or $(HARNESS_JIRA_API_VERSION),2)" 2>/dev/null || true; \
+	fi
+	@# Generate .opencode.json
+	@echo "Generating .opencode.json..."
+	@$(HARNESS_PATH)/modules/harness/scripts/generate-opencode-config.sh > .opencode.json
+	@echo ""
+	@echo "Harness initialized!"
+	@echo "  .beads/         — beads issue tracker"
+	@echo "  .opencode.json  — OpenCode config with MCP servers"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Edit $(HARNESS_STATE_DIR)/config.env"
+	@echo "  2. Copy .harness.local.env.example to .harness.local.env"
+	@echo "  3. Run 'make harness/scaffold' to create AGENTS.md, TOOLS.md, SKILLS.md"
+
+.PHONY: harness/scaffold
+## Create starter AGENTS.md, TOOLS.md, SKILLS.md from templates
+harness/scaffold:
+	@for f in AGENTS.md TOOLS.md SKILLS.md; do \
+		if [ ! -f "$$f" ]; then \
+			cp $(HARNESS_PATH)/modules/harness/templates/$$f.example $$f; \
+			echo "Created $$f — edit to match your project"; \
+		else \
+			echo "$$f already exists, skipping"; \
+		fi; \
+	done
+
+# ═══════════════════════════════════════════════════════════════
+# JIRA SYNC (wraps beads bd sync)
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/jira-pull harness/jira-push harness/jira-sync harness/jira-sync-dry harness/jira-status
+
+## Pull Epic hierarchy from Jira into beads
+## Usage: make harness/jira-pull EPIC=AAP-65162
+harness/jira-pull:
+	@if [ -z "$(EPIC)" ]; then \
+		echo "Usage: make harness/jira-pull EPIC=AAP-65162"; \
+		exit 1; \
+	fi
+	@echo "Pulling $(EPIC) from Jira into beads..."
+	@$(HARNESS_BEADS_BIN) sync --pull --tracker jira 2>&1 || \
+		echo "Note: bd sync not available. Using jira-fetch for context enrichment."
+	@echo "Enriching with custom field context..."
+	@HARNESS_JIRA_ISSUE="$(EPIC)" $(HARNESS_PATH)/modules/harness/scripts/jira-fetch.sh \
+		> $(HARNESS_STATE_DIR)/.cache/context-$(EPIC).md 2>/dev/null || true
+	@echo "Pull complete. Context cached at $(HARNESS_STATE_DIR)/.cache/context-$(EPIC).md"
+
+## Push beads changes back to Jira (new items + status updates)
+harness/jira-push:
+	@echo "Pushing beads changes to Jira..."
+	@$(HARNESS_BEADS_BIN) sync --push --tracker jira 2>&1
+
+## Bidirectional sync with conflict resolution
+harness/jira-sync:
+	@echo "Syncing beads <-> Jira (bidirectional)..."
+	@$(HARNESS_BEADS_BIN) sync --tracker jira 2>&1
+
+## Dry run — show what would change
+harness/jira-sync-dry:
+	@echo "Dry run: beads <-> Jira sync..."
+	@$(HARNESS_BEADS_BIN) sync --tracker jira --dry-run 2>&1
+
+## Show sync state, conflicts, last sync time
+harness/jira-status:
+	@echo "Jira sync status:"
+	@$(HARNESS_BEADS_BIN) config get jira.url 2>/dev/null || echo "  Jira not configured"
+	@echo ""
+	@echo "Issues with Jira refs:"
+	@$(HARNESS_BEADS_BIN) list --json 2>/dev/null | \
+		jq -r '.[] | select(.external_ref != null and .external_ref != "") | "\(.id) \(.status) \(.external_ref) \(.title)"' || true
+
+# ═══════════════════════════════════════════════════════════════
+# WORK PLANNING & EXECUTION
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/plan harness/ready harness/board harness/work harness/swarm harness/swarm-status harness/epic-status
+
+## AI-assisted Epic decomposition with mandatory quality stories
+## Usage: make harness/plan EPIC=AAP-65162
+harness/plan: harness/jira-pull
+	@if [ -z "$(EPIC)" ]; then \
+		echo "Usage: make harness/plan EPIC=AAP-65162"; \
+		exit 1; \
+	fi
+	@EPIC_BEAD=$$($(HARNESS_BEADS_BIN) list --json 2>/dev/null | jq -r \
+		'.[] | select(.external_ref != null and (.external_ref | contains("$(EPIC)"))) | .id' | head -1); \
+	if [ -z "$$EPIC_BEAD" ]; then \
+		echo "Epic $(EPIC) not found in beads. Creating..."; \
+		EPIC_BEAD=$$($(HARNESS_BEADS_BIN) create "$(EPIC)" --type epic --external-ref "jira-$(EPIC)"); \
+		echo "Created $$EPIC_BEAD"; \
+	fi; \
+	echo ""; \
+	echo "Creating mandatory stories for $$EPIC_BEAD..."; \
+	echo ""; \
+	M1=$$($(HARNESS_BEADS_BIN) create "Test Plan: Discover existing test coverage" \
+		--type task --priority 1 --parent $$EPIC_BEAD \
+		--label mandatory --label test-plan --label discovery \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m1-test-discovery.md)" 2>/dev/null); \
+	echo "  $$M1: Test Discovery"; \
+	M2=$$($(HARNESS_BEADS_BIN) create "Test Plan: Create tests for coverage gaps" \
+		--type task --priority 1 --parent $$EPIC_BEAD \
+		--label mandatory --label test-plan --label generation --label requires-aap \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m2-test-creation.md)" 2>/dev/null); \
+	$(HARNESS_BEADS_BIN) dep add $$M2 $$M1 2>/dev/null; \
+	echo "  $$M2: Test Creation (depends on $$M1)"; \
+	M3=$$($(HARNESS_BEADS_BIN) create "Security Audit: Review changes for vulnerabilities" \
+		--type task --priority 0 --parent $$EPIC_BEAD \
+		--label mandatory --label security --label audit \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m3-security-audit.md)" 2>/dev/null); \
+	echo "  $$M3: Security Audit"; \
+	M4=$$($(HARNESS_BEADS_BIN) create "Quality Audit: Review changes for clarity and quality" \
+		--type task --priority 1 --parent $$EPIC_BEAD \
+		--label mandatory --label quality --label audit \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m4-quality-audit.md)" 2>/dev/null); \
+	echo "  $$M4: Quality Audit"; \
+	M5=$$($(HARNESS_BEADS_BIN) create "Intent Alignment: Verify code matches issue hierarchy intent" \
+		--type task --priority 0 --parent $$EPIC_BEAD \
+		--label mandatory --label intent --label alignment \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m5-intent-alignment.md)" 2>/dev/null); \
+	echo "  $$M5: Intent Alignment"; \
+	M6=$$($(HARNESS_BEADS_BIN) create "Test Verification: Execute full test suite and validate results" \
+		--type task --priority 0 --parent $$EPIC_BEAD \
+		--label mandatory --label test-plan --label verification --label requires-aap \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m6-test-execution.md)" 2>/dev/null); \
+	echo "  $$M6: Test Execution"; \
+	M7=$$($(HARNESS_BEADS_BIN) create "Complexity Audit: Review for unnecessary complexity and dependencies" \
+		--type task --priority 1 --parent $$EPIC_BEAD \
+		--label mandatory --label complexity --label audit \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m7-complexity-audit.md)" 2>/dev/null); \
+	echo "  $$M7: Complexity Audit"; \
+	M8=$$($(HARNESS_BEADS_BIN) create "Compatibility Check: Detect breaking API, schema, and config changes" \
+		--type task --priority 0 --parent $$EPIC_BEAD \
+		--label mandatory --label compatibility --label audit --label requires-aap \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m8-compatibility-check.md)" 2>/dev/null); \
+	echo "  $$M8: Compatibility Check"; \
+	M9=$$($(HARNESS_BEADS_BIN) create "Documentation Check: Verify docs match code changes" \
+		--type task --priority 2 --parent $$EPIC_BEAD \
+		--label mandatory --label documentation --label audit \
+		--description "$$(cat $(HARNESS_PROMPTS_DIR)/plan/m9-doc-currency.md)" 2>/dev/null); \
+	echo "  $$M9: Documentation Check"; \
+	echo ""; \
+	echo "Mandatory stories created. Launching AI decomposition..."; \
+	echo ""; \
+	$(HARNESS_OPENCODE_BIN) -p "You are decomposing Epic $$EPIC_BEAD (Jira: $(EPIC)) into implementation tasks. \
+Read the epic with 'bd show $$EPIC_BEAD'. \
+Fetch full context with jira_fetch_context('$(EPIC)'). \
+Decompose the epic into concrete implementation tasks using 'bd create --parent $$EPIC_BEAD'. \
+\
+IMPORTANT - Labeling tasks that need AAP-Dev: \
+If a feature task requires running functional tests against a live AAP deployment, add '--label requires-aap'. \
+Tasks that only modify code, write unit tests, or do code review do NOT need this label. \
+Only tasks that must deploy to AAP-Dev and run functional/integration tests need it. \
+\
+After creating all feature tasks, set up dependencies: \
+- Audit tasks $$M3 $$M4 $$M5 $$M7 $$M8 each depend on all feature tasks AND $$M2 (bd dep add <audit> <feature>). \
+- $$M6 (test execution) depends on $$M2 and all feature tasks and $$M8. \
+- $$M9 (doc check) depends on all feature tasks and $$M8. \
+Focus on concrete, implementable tasks. Each task should be independently assignable to a swarm worker."
+
+## Show unblocked tasks ready for work
+harness/ready:
+	@echo "Ready tasks (no blockers):"
+	@$(HARNESS_BEADS_BIN) ready 2>/dev/null || echo "No beads database found. Run 'make harness/init' first."
+
+## Show full task board with dependencies
+harness/board:
+	@echo "Task Board:"
+	@$(HARNESS_BEADS_BIN) list 2>/dev/null || echo "No beads database found. Run 'make harness/init' first."
+
+## Single opencode session with beads context
+harness/work:
+	@echo "Launching OpenCode session..."
+	@$(HARNESS_OPENCODE_BIN)
+
+## Launch parallel swarm of opencode agents
+harness/swarm:
+	@echo "Launching swarm with $(HARNESS_SWARM_WORKERS) workers..."
+	@echo ""
+	@# Count tasks that require AAP-Dev instances
+	@AAP_TASK_COUNT=$$($(HARNESS_BEADS_BIN) list --json 2>/dev/null | jq \
+		'[.[] | select(.status != "closed" and (.labels // [] | index("requires-aap")))] | length' 2>/dev/null || echo "0"); \
+	if [ "$$AAP_TASK_COUNT" -gt 0 ] && [ -d "$(AAP_DEV_DIR)" ]; then \
+		echo "Tasks requiring AAP-Dev: $$AAP_TASK_COUNT"; \
+		echo "Creating aap-dev worktrees for AAP workers..."; \
+		for i in $$(seq 1 $$AAP_TASK_COUNT); do \
+			WORKTREE="$(HARNESS_STATE_DIR)/aap-dev-swarm-w$$i"; \
+			if [ ! -d "$$WORKTREE" ]; then \
+				git -C "$(AAP_DEV_DIR)" worktree add "$$WORKTREE" $(AAP_DEV_BRANCH) 2>/dev/null || true; \
+			fi; \
+		done; \
+	else \
+		echo "No tasks require AAP-Dev instances."; \
+	fi
+	@echo ""
+	@echo "Ready tasks:"
+	@$(HARNESS_BEADS_BIN) ready 2>/dev/null || true
+	@echo ""
+	@echo "Task types:"
+	@echo "  requires-aap: workers need instance_id for own AAP-Dev (M2, M6, feature tasks with functional tests)"
+	@echo "  all others:   workers run OpenCode against the local codebase only"
+	@echo ""
+	@echo "Workers claim tasks with: bd update <id> --claim"
+
+## Check swarm progress
+harness/swarm-status:
+	@echo "Swarm Status:"
+	@echo ""
+	@$(HARNESS_BEADS_BIN) list --json 2>/dev/null | jq -r \
+		'group_by(.status) | .[] | "\(.[0].status): \(length) task(s)"' || true
+	@echo ""
+	@echo "In progress:"
+	@$(HARNESS_BEADS_BIN) list --json 2>/dev/null | jq -r \
+		'.[] | select(.status == "in_progress") | "  \(.id) \(.title) (assigned: \(.assignee // "unassigned"))"' || true
+
+## Check epic completion status (all mandatory stories must pass)
+## Usage: make harness/epic-status EPIC=AAP-65162
+harness/epic-status:
+	@if [ -z "$(EPIC)" ]; then \
+		echo "Usage: make harness/epic-status EPIC=AAP-65162"; \
+		exit 1; \
+	fi
+	@EPIC_BEAD=$$($(HARNESS_BEADS_BIN) list --json 2>/dev/null | jq -r \
+		'.[] | select(.external_ref != null and (.external_ref | contains("$(EPIC)"))) | .id' | head -1); \
+	if [ -z "$$EPIC_BEAD" ]; then \
+		echo "Epic $(EPIC) not found in beads."; \
+		exit 1; \
+	fi; \
+	MANDATORY=$$($(HARNESS_BEADS_BIN) list --json 2>/dev/null | jq \
+		"[.[] | select(.parent == \"$$EPIC_BEAD\" and (.labels // [] | index(\"mandatory\")))]"); \
+	TOTAL=$$(echo "$$MANDATORY" | jq 'length'); \
+	CLOSED=$$(echo "$$MANDATORY" | jq '[.[] | select(.status == "closed")] | length'); \
+	BLOCKED=$$(echo "$$MANDATORY" | jq '[.[] | select(.status == "blocked")] | length'); \
+	IN_PROGRESS=$$(echo "$$MANDATORY" | jq '[.[] | select(.status == "in_progress")] | length'); \
+	echo "Epic: $(EPIC) ($$EPIC_BEAD)"; \
+	echo "Mandatory stories: $$CLOSED/$$TOTAL complete"; \
+	echo ""; \
+	if [ "$$BLOCKED" -gt 0 ]; then \
+		echo "BLOCKED — mandatory stories have failures:"; \
+		echo "$$MANDATORY" | jq -r '.[] | select(.status == "blocked") | "  - \(.id) \(.title)"'; \
+	elif [ "$$CLOSED" -eq "$$TOTAL" ]; then \
+		echo "All mandatory stories passed — epic ready to close"; \
+	else \
+		echo "In progress ($$IN_PROGRESS active):"; \
+		echo "$$MANDATORY" | jq -r '.[] | select(.status != "closed") | "  \(.status): \(.id) \(.title)"'; \
+	fi
+
+# ═══════════════════════════════════════════════════════════════
+# STATUS & REPORTING
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/status
+
+## Combined view: beads state + Jira sync status
+harness/status:
+	@echo "Harness Status"
+	@echo "=============="
+	@echo ""
+	@echo "Beads:"
+	@$(HARNESS_BEADS_BIN) list --json 2>/dev/null | jq -r \
+		'group_by(.status) | .[] | "  \(.[0].status): \(length)"' || echo "  Not initialized"
+	@echo ""
+	@echo "Jira Sync:"
+	@$(HARNESS_BEADS_BIN) list --json 2>/dev/null | jq -r \
+		'[.[] | select(.external_ref != null and .external_ref != "")] | length | "  Linked issues: \(.)"' || echo "  Not configured"
+	@echo ""
+	@echo "OpenCode: $(HARNESS_OPENCODE_BIN)"
+	@echo "Model: $(HARNESS_AI_MODEL)"
+	@echo "Swarm workers: $(HARNESS_SWARM_WORKERS)"
+
+# ═══════════════════════════════════════════════════════════════
+# CLEANUP
+# ═══════════════════════════════════════════════════════════════
+
+.PHONY: harness/clean
+
+## Remove cached context and temporary files
+harness/clean:
+	@echo "Cleaning harness cache..."
+	@rm -rf $(HARNESS_STATE_DIR)/.cache/*
+	@echo "Cleaning swarm worktrees..."
+	@if [ -d "$(AAP_DEV_DIR)" ]; then \
+		for wt in $(HARNESS_STATE_DIR)/aap-dev-swarm-w*; do \
+			[ -d "$$wt" ] && git -C "$(AAP_DEV_DIR)" worktree remove "$$wt" --force 2>/dev/null || true; \
+		done; \
+	fi
+	@echo "Clean complete"

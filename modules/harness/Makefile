@@ -7,10 +7,7 @@ SHELL := /bin/bash
 -include $(HARNESS_PATH)/modules/harness/defaults.mk
 -include $(HARNESS_PATH)/modules/harness/Makefile.config
 -include $(HARNESS_PATH)/modules/harness/Makefile.context
--include $(HARNESS_PATH)/modules/harness/Makefile.paude
--include $(HARNESS_PATH)/modules/harness/Makefile.intent
--include $(HARNESS_PATH)/modules/harness/Makefile.tests
--include $(HARNESS_PATH)/modules/harness/Makefile.assist
+-include $(HARNESS_PATH)/modules/harness/Makefile.opencode
 -include $(HARNESS_PATH)/modules/harness/Makefile.deps
 -include $(HARNESS_PATH)/modules/harness/Makefile.aap-dev
 -include $(HARNESS_PATH)/modules/harness/Makefile.spec-kit
@@ -24,81 +21,52 @@ SHELL := /bin/bash
 harness/help:
 	@echo "Harness - AI Agent Framework"
 	@echo ""
-	@echo "Setup & Dependencies:"
-	@echo "  harness/init          Initialize harness for this project"
-	@echo "  harness/deps          Install all dependencies (paude, jq, podman)"
+	@echo "Setup:"
+	@echo "  harness/init          Initialize harness (beads, opencode config, MCP servers)"
+	@echo "  harness/scaffold      Create starter AGENTS.md, TOOLS.md, SKILLS.md"
+	@echo "  harness/deps          Install all dependencies"
 	@echo "  harness/deps/check    Check dependency status"
-	@echo "  harness/deps/help     Show all dependency install options"
+	@echo "  harness/config        Display resolved configuration"
+	@echo ""
+	@echo "Jira Sync:"
+	@echo "  harness/jira-pull     Pull Epic from Jira into beads (EPIC=AAP-XXXXX)"
+	@echo "  harness/jira-push     Push beads changes back to Jira"
+	@echo "  harness/jira-sync     Bidirectional sync with conflict resolution"
+	@echo "  harness/jira-status   Show sync state"
+	@echo ""
+	@echo "Work Planning & Execution:"
+	@echo "  harness/plan          Decompose Epic into tasks with mandatory stories (EPIC=AAP-XXXXX)"
+	@echo "  harness/ready         Show unblocked tasks"
+	@echo "  harness/board         Full task board with dependencies"
+	@echo "  harness/work          Single opencode session"
+	@echo "  harness/swarm         Launch parallel swarm of opencode agents"
+	@echo "  harness/swarm-status  Check swarm progress"
+	@echo "  harness/epic-status   Check epic completion (EPIC=AAP-XXXXX)"
+	@echo "  harness/status        Combined status overview"
 	@echo ""
 	@echo "AAP Development Environment:"
-	@echo "  harness/aap-dev/install   Install/clone aap-dev repository"
-	@echo "  harness/aap-dev/start     Start AAP dev environment"
-	@echo "  harness/aap-dev/stop      Stop AAP dev environment"
-	@echo "  harness/aap-dev/help      Show all aap-dev commands"
+	@echo "  harness/aap-dev/help  Show all aap-dev commands"
 	@echo ""
-	@echo "Spec-Driven Development:"
-	@echo "  harness/spec-kit/install  Install specify CLI"
-	@echo "  harness/spec-kit/workflow Run full workflow (spec→plan→tasks)"
-	@echo "  harness/spec-kit/help     Show all spec-kit commands"
-	@echo ""
-	@echo "Core Targets:"
-	@echo "  harness/config        Display resolved configuration"
-	@echo "  harness/context       Assemble and display context (Jira + code)"
+	@echo "Legacy Targets:"
+	@echo "  harness/context       Assemble context (Jira + code)"
 	@echo "  harness/intent-check  Check alignment between Jira and code"
-	@echo "  harness/suggest-tests Generate tests from Jira acceptance criteria"
-	@echo "  harness/find-tests    Discover existing tests for modified code"
+	@echo "  harness/suggest-tests Generate tests from acceptance criteria"
+	@echo "  harness/find-tests    Discover existing tests"
 	@echo "  harness/assist        Interactive implementation assistance"
-	@echo "  harness/cost          Estimate token cost for a command"
-	@echo "  harness/clean         Remove cached context and stop sessions"
-	@echo "  harness/update        Update harness to latest version"
 	@echo ""
 	@echo "Configuration:"
-	@echo "  HARNESS_ISSUE         Override Jira issue detection"
-	@echo "  HARNESS_AI_PROVIDER   AI provider (claude|openai|local|vertex)"
-	@echo "  HARNESS_DRY_RUN       Show prompt without calling agent"
-	@echo "  HARNESS_OUTPUT_FORMAT Output format (markdown|json)"
-	@echo "  HARNESS_NO_CACHE      Skip Jira cache"
+	@echo "  EPIC                  Jira Epic key for plan/sync targets"
+	@echo "  HARNESS_AI_PROVIDER   AI provider (anthropic|openai|local|vertex)"
+	@echo "  HARNESS_AI_MODEL      AI model (default: claude-sonnet-4-6)"
+	@echo "  HARNESS_SWARM_WORKERS Number of parallel swarm workers (default: 3)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make harness/deps             # Install all dependencies"
-	@echo "  make harness/intent-check"
-	@echo "  make harness/intent-check HARNESS_ISSUE=PROJ-1234"
-	@echo "  make harness/assist HARNESS_AI_PROVIDER=openai"
+	@echo "  make harness/init"
+	@echo "  make harness/plan EPIC=AAP-65162"
+	@echo "  make harness/swarm"
+	@echo "  make harness/jira-push"
 
-.PHONY: harness/init
-## Initialize harness for a project
-harness/init:
-	@echo "Initializing Harness..."
-	@mkdir -p .harness/.cache
-	@mkdir -p .harness/prompts
-	@if [ ! -f .harness/config.env ]; then \
-		cp $(HARNESS_PATH)/modules/harness/templates/config.env.example .harness/config.env; \
-		echo "Created .harness/config.env"; \
-	fi
-	@if [ ! -f .harness.local.env ]; then \
-		cp $(HARNESS_PATH)/modules/harness/templates/local.env.example .harness.local.env.example; \
-		echo "Created .harness.local.env.example"; \
-		echo "Copy to .harness.local.env and add your credentials"; \
-	fi
-	@echo ""
-	@echo "Validating prerequisites..."
-	@$(HARNESS_PATH)/modules/harness/scripts/validate-prereqs.sh
-	@echo ""
-	@echo "Harness initialized successfully!"
-	@echo "Next steps:"
-	@echo "  1. Edit .harness/config.env with your project settings"
-	@echo "  2. Copy .harness.local.env.example to .harness.local.env"
-	@echo "  3. Add your credentials to .harness.local.env"
-	@echo "  4. Run 'make harness/config' to validate"
-
-.PHONY: harness/clean
-## Remove cached context and stop paude sessions
-harness/clean:
-	@echo "Cleaning harness cache..."
-	@rm -rf .harness/.cache/*
-	@echo "Stopping paude sessions..."
-	@$(HARNESS_PATH)/modules/harness/scripts/paude-session.sh cleanup || true
-	@echo "Clean complete"
+# harness/init and harness/clean are defined in Makefile.opencode
 
 .PHONY: harness/update
 ## Update harness to latest version

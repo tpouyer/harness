@@ -1,0 +1,65 @@
+# AGENTS.md
+
+## Repository Overview
+<!-- Brief description of what this project does and its role in the larger system -->
+
+## Language & Runtime
+<!-- Primary language(s), version(s), runtime requirements, package manager -->
+
+## Repository Structure
+<!-- Directory layout with descriptions -->
+<!--
+src/              # Application source code
+tests/            # Unit tests
+docs/             # In-repo documentation
+scripts/          # Build and utility scripts
+-->
+
+## Build Process
+<!-- How to build, lint, and run the project locally -->
+
+## Test Location
+<!-- Where tests live. If external repo, specify below -->
+<!--
+Tests are maintained in a separate repository:
+- Repo: git@github.com:org/my-project-tests.git
+- Branch: main
+- Mapping: src/api/ -> tests/integration/api/
+-->
+
+## Code Conventions
+<!-- Naming conventions, file organization, PR/commit format -->
+
+## Architecture
+<!-- Key architectural decisions, patterns, dependency injection approach -->
+
+## Documentation
+Where documentation lives for this component and how to report doc issues.
+
+### Documentation Sources
+| Type | Location | Owner |
+|------|----------|-------|
+<!-- | User docs | https://docs.example.com/ | Jira: PROJ, component: Documentation | -->
+<!-- | API reference | docs/api/ (OpenAPI spec in this repo) | This team | -->
+<!-- | Architecture | docs/architecture/ (in this repo) | This team | -->
+
+### Filing Doc Issues
+- **Project**: <!-- JIRA_PROJECT -->
+- **Issue Type**: Task
+- **Component**: Documentation
+- **Labels**: docs-update, harness-generated
+- **Link Type**: "is caused by"
+
+## Team Ownership
+How to file issues against other teams when cross-team work is identified.
+
+### Component Teams
+| Component | Jira Project | Component |
+|-----------|-------------|-----------|
+<!-- | Controller | AAP | Controller | -->
+<!-- | Documentation | AAP | Documentation | -->
+<!-- | Security | SECBUGS | (follow security disclosure process) | -->
+
+### Security Issues
+<!-- - Critical/High: File in SECBUGS project (never public Jira) -->
+<!-- - Medium/Low: File in AAP project, component: Security -->

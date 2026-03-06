@@ -14,7 +14,7 @@ export HARNESS_JIRA_AUTH_TYPE ?= auto
 export HARNESS_JIRA_API_VERSION ?=
 
 # AI Provider Configuration
-export HARNESS_AI_PROVIDER ?= claude
+export HARNESS_AI_PROVIDER ?= anthropic
 export HARNESS_AI_API_KEY ?=
 export HARNESS_AI_MODEL ?= claude-sonnet-4-6
 export HARNESS_AI_FALLBACK ?= openai,local
@@ -30,10 +30,26 @@ export HARNESS_PROVIDER_TESTS ?= $(HARNESS_AI_PROVIDER)
 export HARNESS_PROVIDER_ASSIST ?= $(HARNESS_AI_PROVIDER)
 export HARNESS_PROVIDER_DISCOVERY ?= local
 
-# Paude Configuration
-export HARNESS_PAUDE_BACKEND ?= podman
-export HARNESS_PAUDE_ALLOWED_DOMAINS ?= api.anthropic.com,api.openai.com,*.googleapis.com,*.atlassian.net
-export HARNESS_CONTAINER_REGISTRY ?= quay.io/aap
+# OpenCode (pinned version)
+export HARNESS_OPENCODE_VERSION ?= v0.1.0
+export HARNESS_OPENCODE_BIN ?= opencode
+
+# SwarmTools
+export HARNESS_SWARM_WORKERS ?= 3
+
+# Beads
+export HARNESS_BEADS_BIN ?= bd
+
+# Harness State Directory
+export HARNESS_STATE_DIR ?= .harness
+
+# AAP-Dev Configuration
+export AAP_DEV_REPO ?= https://github.com/ansible/aap-dev.git
+export AAP_DEV_DIR ?= $(HARNESS_STATE_DIR)/aap-dev
+export AAP_DEV_BRANCH ?= main
+export AAP_VERSION ?= 2.6-next
+export AAP_CONTAINER_RUNTIME ?= podman
+
 
 # Cache Configuration
 export HARNESS_CACHE_TTL ?= 1800

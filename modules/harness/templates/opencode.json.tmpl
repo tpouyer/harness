@@ -1,0 +1,24 @@
+{
+  "provider": "${HARNESS_AI_PROVIDER}",
+  "model": "${HARNESS_AI_MODEL}",
+  "contextPaths": [
+    "AGENTS.md",
+    "TOOLS.md",
+    "SKILLS.md",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    ".github/copilot-instructions.md"
+  ],
+  "mcpServers": {
+    "harness-jira": {
+      "type": "stdio",
+      "command": "${HARNESS_MODULE_PATH}/mcp/jira-context-server.sh",
+      "env": []
+    },
+    "harness-aap-dev": {
+      "type": "stdio",
+      "command": "${HARNESS_MODULE_PATH}/mcp/aap-dev-server.sh",
+      "env": []
+    }
+  }
+}

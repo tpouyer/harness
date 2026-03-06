@@ -1,0 +1,64 @@
+# TOOLS.md
+
+## MCP Servers
+
+### harness-jira
+Jira context enrichment including custom fields, hierarchy traversal, and linked documents.
+- `jira_fetch_context(issue_key)` -- Full Jira hierarchy + acceptance criteria + handbook docs
+- `jira_detect_issue()` -- Detect Jira issue key from git branch/commit/environment
+- `jira_create_issue(project, summary, description, issue_type, component?, labels?, priority?, link_key?, link_type?)` -- Create a Jira issue, optionally linked to another issue
+- `jira_add_comment(issue_key, comment)` -- Add a comment to an existing Jira issue
+
+### harness-aap-dev
+AAP development environment management and testing.
+
+#### Environment
+- `aap_dev_ensure_running(version?, instance_id?)` -- Deploy AAP if not running
+- `aap_dev_status(instance_id?)` -- Check pod health
+- `aap_dev_stop(instance_id?)` -- Tear down kind cluster
+- `aap_dev_url(instance_id?)` -- Get the AAP URL
+- `aap_dev_admin_password(instance_id?)` -- Get login credentials
+
+#### Testing
+- `aap_dev_test(component?, instance_id?)` -- Run ATF tests (components: controller, eda, hub, portal, platform-services, emerging-services)
+- `aap_dev_test_init(instance_id?)` -- Initialize ATF test suite
+- `aap_dev_discover_tests(instance_id?)` -- Find existing tests covering modified code
+- `aap_dev_commit_func_tests(instance_id?)` -- Commit generated functional tests and open PR in test repo
+
+#### Source Configuration
+- `aap_dev_configure_sources(sources, test_repos?, polling?)` -- Override component repos/branches for build. Use local_path for hot-reload, repo+ref for remote branches.
+- `aap_dev_show_sources(instance_id?)` -- Show configured source overrides
+- `aap_dev_reset_sources(instance_id?)` -- Reset to default nightly images
+- `aap_dev_sync_status(instance_id?)` -- Check hot-reload file sync status
+
+#### Data Seeding
+- `aap_dev_seed_default(instance_id?)` -- Run default seeding playbook
+- `aap_dev_seed_data(instance_id?, playbook?, extra_vars?)` -- Seed custom data
+
+#### Content Regeneration
+- `aap_dev_regenerate_containerfiles(instance_id?)` -- Regenerate Containerfiles from upstream
+- `aap_dev_regenerate_k8s_manifests(instance_id?)` -- Extract K8s manifests from running instance
+
+#### Observability
+- `aap_dev_metrics_top(instance_id?, resource?)` -- CPU/memory usage per pod or node
+- `aap_dev_observability_install(instance_id?)` -- Install Prometheus + Grafana stack
+- `aap_dev_observability_status(instance_id?)` -- Check observability stack status
+
+#### API Compatibility
+- `aap_dev_download_specs(instance_id?, output_dir?, components?)` -- Download OpenAPI specs from a running AAP instance. Use for API breaking change detection.
+- `aap_dev_get_baseline_specs(output_dir?, components?)` -- Fetch baseline OpenAPI specs from the aap-openapi-specs repo. Diff against live specs to detect breaking changes.
+  Components: gateway, eda, galaxy, galaxy-pulp, controller, lightspeed
+
+#### Management
+- `aap_dev_preflight(instance_id?)` -- Check prerequisites
+- `aap_dev_logs(lines?, instance_id?)` -- Read recent AAP logs
+- `aap_dev_events(instance_id?)` -- Show Kubernetes events
+- `aap_dev_versions()` -- List available AAP versions
+- `aap_dev_backup(instance_id?)` -- Backup PostgreSQL database
+- `aap_dev_restore(instance_id?)` -- Restore database from backup
+
+## CLI Tools
+<!-- Project-specific CLI tools the AI should know about -->
+<!-- - `make lint` -- Run linter -->
+<!-- - `make test` -- Run unit tests -->
+<!-- - `make build` -- Build the project -->
