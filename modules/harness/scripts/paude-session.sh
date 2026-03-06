@@ -108,11 +108,19 @@ case "$ACTION" in
         # Render the prompt
         "$SCRIPT_DIR/prompt-render.sh" "$TASK_TYPE" > "$CACHE_DIR/prompt-${ISSUE}.md"
 
-        # Create session if needed, copy prompt, and connect
+        # Create session if needed, sync code, and start
         if command -v paude &> /dev/null; then
             ensure_session
-            paude cp "$CACHE_DIR/prompt-${ISSUE}.md" "${SESSION_NAME}:.harness/prompt.md"
-            echo "Prompt copied to session. Connecting..."
+
+            # Push workspace into session via git remote
+            if ! git remote | grep -q "paude-${SESSION_NAME}" 2>/dev/null; then
+                echo "Syncing workspace to session..."
+                paude remote add --push "$SESSION_NAME" 2>/dev/null || true
+            else
+                git push "paude-${SESSION_NAME}" HEAD 2>/dev/null || true
+            fi
+
+            echo "Starting session..."
             paude start "$SESSION_NAME"
         else
             echo "Note: Running in simulation mode (paude not installed)"
