@@ -57,14 +57,17 @@ Red Hat Jira uses non-standard custom field IDs. The script discovers them dynam
 ## Paude (Container Session Manager)
 `paude-session.sh` wraps the `paude` CLI for managing AI agent container sessions.
 - Valid paude subcommands: `create`, `start`, `stop`, `connect`, `list`, `cp`, `remote`, `delete`
-- `create` options: `--yolo`, `--allowed-domains`, `--backend`, `--args`, `--rebuild`, `--dry-run`, `--platform`
+- `create` options: `--yolo`, `--allowed-domains`, `--backend`, `--args`/`-a`, `--rebuild`, `--dry-run`, `--platform`
 - **No** `--image`, `--mount`, `--env`, `interactive`, `exec`, `rm`, or `logs` commands exist
 - `--allowed-domains` must be repeated per domain; `build_domain_flags()` handles splitting
+- `--args`/`-a` is create-time only (not available on `start`)
 - `delete` requires `--confirm` flag
 - `start` starts and connects to a session; `connect` attaches to an already-running session
-- `cp` copies files between local and session (e.g. prompts in, results out)
-- `ensure_session()` auto-creates a session if none exists (used by `run`)
-- The `run` action: ensures session, renders prompt, copies via `paude cp`, then `paude start`
+- `cp` copies files to/from a **running** session only; cannot create intermediate directories
+- `run` action handles session state to preserve context:
+  - **Running**: `paude cp` prompt to workspace root, `paude connect`
+  - **Stopped**: `paude start` (resumes with prior context)
+  - **New**: `paude create -a '-p "prompt"'`, sync via `paude remote add --push`, `paude start`
 - Simulation mode only triggers when paude is not installed
 
 ## Key Implementation Details
