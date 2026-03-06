@@ -57,11 +57,15 @@ Red Hat Jira uses non-standard custom field IDs. The script discovers them dynam
 ## Paude (Container Session Manager)
 `paude-session.sh` wraps the `paude` CLI for managing AI agent container sessions.
 - Valid paude subcommands: `create`, `start`, `stop`, `connect`, `list`, `cp`, `remote`, `delete`
-- No `interactive` or `exec` commands exist in paude
-- `connect` attaches to a running session
+- `create` options: `--yolo`, `--allowed-domains`, `--backend`, `--args`, `--rebuild`, `--dry-run`, `--platform`
+- **No** `--image`, `--mount`, `--env`, `interactive`, `exec`, `rm`, or `logs` commands exist
+- `--allowed-domains` must be repeated per domain; `build_domain_flags()` handles splitting
+- `delete` requires `--confirm` flag
+- `start` starts and connects to a session; `connect` attaches to an already-running session
 - `cp` copies files between local and session (e.g. prompts in, results out)
-- The `run` action auto-creates a session if none exists, renders a prompt, copies it via `paude cp`, then connects
-- Simulation mode only triggers when paude is not installed, not when a session doesn't exist yet
+- `ensure_session()` auto-creates a session if none exists (used by `run`)
+- The `run` action: ensures session, renders prompt, copies via `paude cp`, then `paude start`
+- Simulation mode only triggers when paude is not installed
 
 ## Key Implementation Details
 - `gh` CLI calls must unset `GITHUB_TOKEN`/`GH_TOKEN` env vars to prevent overriding keyring auth with a less-privileged token
